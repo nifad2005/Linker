@@ -10,6 +10,8 @@ class ChatListScreen extends StatelessWidget {
   final Function(String) onAddConnection;
   final Function(String) onDeleteConnection;
   final Function(String, String) onSendMessage;
+  final Function(String, bool) onSendTyping;
+  final Function(String) onSendSeen;
   final String myId;
   final bool isConnected;
 
@@ -19,6 +21,8 @@ class ChatListScreen extends StatelessWidget {
     required this.onAddConnection, 
     required this.onDeleteConnection,
     required this.onSendMessage,
+    required this.onSendTyping,
+    required this.onSendSeen,
     required this.myId, 
     required this.isConnected
   });
@@ -107,26 +111,48 @@ class ChatListScreen extends StatelessWidget {
                   onDismissed: (_) => onDeleteConnection(user.id),
                   child: ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                    leading: CircleAvatar(
-                      radius: 25,
-                      backgroundColor: Colors.white.withOpacity(0.05),
-                      child: Text(user.name.isNotEmpty ? user.name.substring(0, 1).toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    leading: Stack(
+                      children: [
+                        CircleAvatar(
+                          radius: 25,
+                          backgroundColor: Colors.white.withOpacity(0.05),
+                          child: Text(user.name.isNotEmpty ? user.name.substring(0, 1).toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                        if (user.isOnline)
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              width: 14,
+                              height: 14,
+                              decoration: BoxDecoration(
+                                color: Colors.green,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: const Color(0xFF121212), width: 2),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     title: Text(user.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17)),
-                    subtitle: lastMsg != null 
-                      ? Text(
-                          lastMsg.text, 
-                          maxLines: 1, 
-                          overflow: TextOverflow.ellipsis, 
-                          style: TextStyle(color: lastMsg.isSystem ? Colors.blueAccent : Colors.white38)
-                        )
-                      : const Text('New connection', style: TextStyle(color: Colors.white38)),
+                    subtitle: user.isTyping 
+                      ? const Text('typing...', style: TextStyle(color: Colors.green, fontStyle: FontStyle.italic))
+                      : lastMsg != null 
+                        ? Text(
+                            lastMsg.text, 
+                            maxLines: 1, 
+                            overflow: TextOverflow.ellipsis, 
+                            style: TextStyle(color: lastMsg.isSystem ? Colors.blueAccent : Colors.white38)
+                          )
+                        : const Text('New connection', style: TextStyle(color: Colors.white38)),
                     trailing: lastMsg != null 
                       ? Text(DateFormat('HH:mm').format(lastMsg.timestamp), style: const TextStyle(fontSize: 12, color: Colors.white24))
                       : null,
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => MessagePage(
                       user: user,
                       onMessageSent: (text) => onSendMessage(user.id, text),
+                      onSendTyping: (isTyping) => onSendTyping(user.id, isTyping),
+                      onSendSeen: () => onSendSeen(user.id),
                     ))),
                   ),
                 );

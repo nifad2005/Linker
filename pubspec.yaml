@@ -18,6 +18,7 @@ dependencies:
   mqtt_client: ^10.2.0
   uuid: ^4.2.2
   intl: ^0.18.1
+  flutter_local_notifications: ^17.0.0
 
 dev_dependencies:
   flutter_test:

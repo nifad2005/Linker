@@ -6,7 +6,16 @@ import '../models.dart';
 class MessagePage extends StatefulWidget {
   final ChatUser user;
   final Function(String) onMessageSent;
-  const MessagePage({super.key, required this.user, required this.onMessageSent});
+  final Function(bool) onSendTyping;
+  final VoidCallback onSendSeen;
+
+  const MessagePage({
+    super.key, 
+    required this.user, 
+    required this.onMessageSent,
+    required this.onSendTyping,
+    required this.onSendSeen,
+  });
 
   @override
   State<MessagePage> createState() => _MessagePageState();
@@ -16,23 +25,45 @@ class _MessagePageState extends State<MessagePage> {
   final TextEditingController _ctrl = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   StreamSubscription? _subscription;
+  Timer? _typingTimer;
 
   @override
   void initState() {
     super.initState();
-    // Listen for real-time updates for this specific user
+    
+    // Mark messages as seen when entering the chat
+    widget.onSendSeen();
+
     _subscription = messageUpdates.stream.listen((peerId) {
       if (peerId == widget.user.id) {
         if (mounted) {
+          // If a new message arrived while we are here, mark it as seen
+          widget.onSendSeen();
           setState(() {});
           _scrollToBottom();
         }
       }
     });
+
+    _ctrl.addListener(_onTextChanged);
+  }
+
+  void _onTextChanged() {
+    if (_ctrl.text.isNotEmpty) {
+      widget.onSendTyping(true);
+      _typingTimer?.cancel();
+      _typingTimer = Timer(const Duration(seconds: 2), () {
+        widget.onSendTyping(false);
+      });
+    } else {
+      widget.onSendTyping(false);
+    }
   }
 
   @override
   void dispose() {
+    widget.onSendTyping(false);
+    _typingTimer?.cancel();
     _subscription?.cancel();
     _ctrl.dispose();
     _scrollController.dispose();
@@ -43,6 +74,7 @@ class _MessagePageState extends State<MessagePage> {
     if (_ctrl.text.trim().isEmpty) return;
     widget.onMessageSent(_ctrl.text.trim());
     _ctrl.clear();
+    widget.onSendTyping(false);
     _scrollToBottom();
   }
 
@@ -65,13 +97,49 @@ class _MessagePageState extends State<MessagePage> {
         titleSpacing: 0,
         title: Row(
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: Colors.white.withOpacity(0.05),
-              child: Text(widget.user.name.substring(0, 1).toUpperCase(), style: const TextStyle(fontSize: 14)),
+            Stack(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: Colors.white.withOpacity(0.05),
+                  child: Text(widget.user.name.isNotEmpty ? widget.user.name.substring(0, 1).toUpperCase() : '?', style: const TextStyle(fontSize: 14)),
+                ),
+                if (widget.user.isOnline)
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFF121212), width: 1.5),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(width: 12),
-            Expanded(child: Text(widget.user.name, style: const TextStyle(fontSize: 18))),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(widget.user.name, style: const TextStyle(fontSize: 16)),
+                  if (widget.user.isTyping)
+                    const Text('typing...', style: TextStyle(fontSize: 11, color: Colors.green, fontStyle: FontStyle.italic))
+                  else
+                    Text(
+                      widget.user.isOnline ? 'Online' : 'Offline',
+                      style: TextStyle(
+                        fontSize: 11, 
+                        color: widget.user.isOnline ? Colors.green : Colors.white38
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -115,9 +183,19 @@ class _MessagePageState extends State<MessagePage> {
                         ),
                         child: Text(m.text, style: const TextStyle(fontSize: 16)),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        child: Text(DateFormat('HH:mm').format(m.timestamp), style: const TextStyle(fontSize: 10, color: Colors.white12)),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(DateFormat('HH:mm').format(m.timestamp), style: const TextStyle(fontSize: 10, color: Colors.white12)),
+                          if (m.isMe) ...[
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.done_all, 
+                              size: 14, 
+                              color: m.isSeen ? Colors.blueAccent : Colors.white12
+                            ),
+                          ]
+                        ],
                       ),
                       const SizedBox(height: 8),
                     ],

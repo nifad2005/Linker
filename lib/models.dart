@@ -27,12 +27,14 @@ class ChatMessage {
   final bool isMe;
   final DateTime timestamp;
   final bool isSystem;
+  bool isSeen;
 
   ChatMessage({
     required this.text,
     required this.isMe,
     required this.timestamp,
     this.isSystem = false,
+    this.isSeen = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -40,6 +42,7 @@ class ChatMessage {
     'isMe': isMe,
     'timestamp': timestamp.toIso8601String(),
     'isSystem': isSystem,
+    'isSeen': isSeen,
   };
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
@@ -47,6 +50,7 @@ class ChatMessage {
     isMe: json['isMe'],
     timestamp: DateTime.parse(json['timestamp']),
     isSystem: json['isSystem'] ?? false,
+    isSeen: json['isSeen'] ?? false,
   );
 }
 
@@ -54,11 +58,15 @@ class ChatUser {
   String name;
   final String id;
   final List<ChatMessage> messages;
+  bool isTyping;
+  bool isOnline;
 
   ChatUser({
     required this.name,
     required this.id,
     this.messages = const [],
+    this.isTyping = false,
+    this.isOnline = false,
   });
 
   Map<String, dynamic> toJson() => {

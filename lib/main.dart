@@ -5,12 +5,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 import 'package:uuid/uuid.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'models.dart';
 import 'screens/chat_list_screen.dart';
 import 'screens/profile_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const LinkerApp());
 }
@@ -47,12 +48,15 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => MainScreenState();
 }
 
-class MainScreenState extends State<MainScreen> {
+class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   bool _isLoading = true;
   MqttServerClient? _client;
   bool _isConnected = false;
+  AppLifecycleState _appState = AppLifecycleState.resumed;
   
+  final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
+
   UserProfile _currentUser = UserProfile(
     name: 'User-${const Uuid().v4().substring(0, 4)}',
     id: const Uuid().v4().substring(0, 8).toUpperCase(),
@@ -63,12 +67,67 @@ class MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initApp();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appState = state;
+    if (state == AppLifecycleState.resumed) {
+      _broadcastStatus(true);
+    }
   }
 
   Future<void> _initApp() async {
     await _loadData();
+    await _setupNotifications();
     await _setupMqtt();
+  }
+
+  Future<void> _setupNotifications() async {
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const initSettings = InitializationSettings(android: androidInit);
+    await _notifications.initialize(initSettings);
+
+    // Request permission for Android 13+
+    await _notifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'linker_messages',
+      'Messages',
+      description: 'Incoming messages from Linker',
+      importance: Importance.max,
+    );
+
+    await _notifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+  }
+
+  Future<void> _showNotification(String title, String body) async {
+    const androidDetails = AndroidNotificationDetails(
+      'linker_messages',
+      'Messages',
+      channelDescription: 'Incoming messages from Linker',
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+    const details = NotificationDetails(android: androidDetails);
+    await _notifications.show(
+      DateTime.now().millisecond, // Unique ID for each notification
+      title, 
+      body, 
+      details
+    );
   }
 
   Future<void> _setupMqtt() async {
@@ -82,18 +141,38 @@ class MainScreenState extends State<MainScreen> {
       if (mounted) setState(() => _isConnected = false);
     };
     _client!.onConnected = () {
-      if (mounted) setState(() => _isConnected = true);
+      if (mounted) {
+        setState(() => _isConnected = true);
+        _broadcastStatus(true);
+      }
     };
     
+    final lwtPayload = jsonEncode({
+      'type': 'STATUS',
+      'senderId': _currentUser.id,
+      'online': false,
+    });
+
     final connMessage = MqttConnectMessage()
         .withClientIdentifier('linker_${_currentUser.id}_${const Uuid().v4().substring(0, 4)}')
         .startClean()
+        .withWillTopic('linker/status/${_currentUser.id}')
+        .withWillMessage(lwtPayload)
         .withWillQos(MqttQos.atLeastOnce);
+    
+    try {
+      (connMessage as dynamic).withWillRetain();
+    } catch (_) {}
+        
     _client!.connectionMessage = connMessage;
 
     try {
       await _client!.connect();
       _client!.subscribe('linker/${_currentUser.id}', MqttQos.atLeastOnce);
+      for (var user in _users) {
+        _client!.subscribe('linker/status/${user.id}', MqttQos.atLeastOnce);
+      }
+
       _client!.updates!.listen((List<MqttReceivedMessage<MqttMessage>> c) {
         final MqttPublishMessage recMess = c[0].payload as MqttPublishMessage;
         final String pt = MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
@@ -102,6 +181,18 @@ class MainScreenState extends State<MainScreen> {
     } catch (e) {
       debugPrint('MQTT connection failed: $e');
     }
+  }
+
+  void _broadcastStatus(bool online) {
+    if (_client?.connectionStatus?.state != MqttConnectionState.connected) return;
+    final payload = jsonEncode({
+      'type': 'STATUS',
+      'senderId': _currentUser.id,
+      'online': online,
+    });
+    final builder = MqttClientPayloadBuilder();
+    builder.addString(payload);
+    _client!.publishMessage('linker/status/${_currentUser.id}', MqttQos.atLeastOnce, builder.payload!, retain: true);
   }
 
   void _handleIncomingMessage(String payload) {
@@ -122,6 +213,7 @@ class MainScreenState extends State<MainScreen> {
           if (index == -1) {
             _users.insert(0, ChatUser(name: senderName, id: senderId, messages: []));
             index = 0;
+            _client?.subscribe('linker/status/$senderId', MqttQos.atLeastOnce);
             if (type == 'CONNECT') {
                _sendHandshake(senderId, isResponse: true);
             }
@@ -129,19 +221,34 @@ class MainScreenState extends State<MainScreen> {
             _users[index].name = senderName;
           }
 
-          if (type == 'CONNECT') {
+          if (type == 'STATUS') {
+            _users[index].isOnline = decoded['online'] ?? false;
+          } else if (type == 'TYPING') {
+            _users[index].isTyping = decoded['isTyping'] ?? false;
+          } else if (type == 'SEEN') {
+            for (var msg in _users[index].messages) {
+              if (msg.isMe) msg.isSeen = true;
+            }
+          } else if (type == 'CONNECT') {
             _users[index].messages.insert(0, ChatMessage(
               text: 'Connection established with $senderName',
               isMe: false,
               timestamp: DateTime.now(),
               isSystem: true,
             ));
-          } else {
+            _broadcastStatus(true);
+          } else if (type == 'MESSAGE') {
+            _users[index].isTyping = false;
             _users[index].messages.insert(0, ChatMessage(
               text: text,
               isMe: false,
               timestamp: DateTime.now(),
             ));
+
+            // Show notification if app is in background
+            if (_appState != AppLifecycleState.resumed) {
+              _showNotification(senderName, text);
+            }
           }
         });
         messageUpdates.add(senderId);
@@ -202,6 +309,7 @@ class MainScreenState extends State<MainScreen> {
       ));
     });
     
+    _client?.subscribe('linker/status/$peerId', MqttQos.atLeastOnce);
     _sendHandshake(peerId);
     _saveData();
   }
@@ -210,6 +318,7 @@ class MainScreenState extends State<MainScreen> {
     setState(() {
       _users.removeWhere((u) => u.id == peerId);
     });
+    _client?.unsubscribe('linker/status/$peerId');
     _saveData();
   }
 
@@ -255,6 +364,29 @@ class MainScreenState extends State<MainScreen> {
     _saveData();
   }
 
+  void sendTypingStatus(String peerId, bool isTyping) {
+    if (_client?.connectionStatus?.state != MqttConnectionState.connected) return;
+    final payload = jsonEncode({
+      'type': 'TYPING',
+      'senderId': _currentUser.id,
+      'isTyping': isTyping,
+    });
+    final builder = MqttClientPayloadBuilder();
+    builder.addString(payload);
+    _client!.publishMessage('linker/$peerId', MqttQos.atMostOnce, builder.payload!);
+  }
+
+  void sendSeenStatus(String peerId) {
+    if (_client?.connectionStatus?.state != MqttConnectionState.connected) return;
+    final payload = jsonEncode({
+      'type': 'SEEN',
+      'senderId': _currentUser.id,
+    });
+    final builder = MqttClientPayloadBuilder();
+    builder.addString(payload);
+    _client!.publishMessage('linker/$peerId', MqttQos.atLeastOnce, builder.payload!);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -266,12 +398,14 @@ class MainScreenState extends State<MainScreen> {
               onAddConnection: addNewConnection, 
               onDeleteConnection: deleteConnection,
               onSendMessage: sendMessage,
+              onSendTyping: sendTypingStatus,
+              onSendSeen: sendSeenStatus,
               myId: _currentUser.id, 
               isConnected: _isConnected
             )
           : ProfileScreen(
               user: _currentUser, 
-              onUpdateName: (name) { setState(() => _currentUser.name = name); _saveData(); },
+              onUpdateName: (name) { setState(() => _currentUser.name = name); _saveData(); _broadcastStatus(true); },
               onUpdateImage: (path) { setState(() => _currentUser.profileImageUrl = path); _saveData(); },
             ),
       bottomNavigationBar: BottomNavigationBar(
