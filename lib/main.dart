@@ -5,6 +5,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:mqtt_client/mqtt_client.dart';
+import 'package:mqtt_client/mqtt_server_client.dart';
+import 'package:uuid/uuid.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,53 +38,49 @@ class ChatMessage {
   final String text;
   final bool isMe;
   final DateTime timestamp;
+  final bool isSystem;
 
   ChatMessage({
     required this.text,
     required this.isMe,
     required this.timestamp,
+    this.isSystem = false,
   });
 
   Map<String, dynamic> toJson() => {
     'text': text,
     'isMe': isMe,
     'timestamp': timestamp.toIso8601String(),
+    'isSystem': isSystem,
   };
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
     text: json['text'],
     isMe: json['isMe'],
     timestamp: DateTime.parse(json['timestamp']),
+    isSystem: json['isSystem'] ?? false,
   );
 }
 
 class ChatUser {
-  final String name;
-  final String lastMessage;
-  final String time;
+  String name;
   final String id;
   final List<ChatMessage> messages;
 
   ChatUser({
     required this.name,
-    required this.lastMessage,
-    required this.time,
     required this.id,
     this.messages = const [],
   });
 
   Map<String, dynamic> toJson() => {
     'name': name,
-    'lastMessage': lastMessage,
-    'time': time,
     'id': id,
     'messages': messages.map((m) => m.toJson()).toList(),
   };
 
   factory ChatUser.fromJson(Map<String, dynamic> json) => ChatUser(
     name: json['name'],
-    lastMessage: json['lastMessage'],
-    time: json['time'],
     id: json['id'],
     messages: (json['messages'] as List?)?.map((m) => ChatMessage.fromJson(m)).toList() ?? [],
   );
@@ -117,11 +116,11 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
   bool _isLoading = true;
+  MqttServerClient? _client;
   
   UserProfile _currentUser = UserProfile(
-    name: 'John Doe',
-    id: 'LNK-7729-XQ',
-    profileImageUrl: null,
+    name: 'User-${const Uuid().v4().substring(0, 4)}',
+    id: const Uuid().v4().substring(0, 8).toUpperCase(),
   );
 
   List<ChatUser> _users = [];
@@ -129,7 +128,83 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _initApp();
+  }
+
+  Future<void> _initApp() async {
+    await _loadData();
+    await _setupMqtt();
+  }
+
+  Future<void> _setupMqtt() async {
+    _client = MqttServerClient('test.mosquitto.org', '');
+    _client!.port = 1883;
+    _client!.logging(on: false);
+    _client!.keepAlivePeriod = 20;
+    _client!.onDisconnected = () => debugPrint('MQTT Disconnected');
+    
+    final connMessage = MqttConnectMessage()
+        .withClientIdentifier('linker_${_currentUser.id}')
+        .startClean()
+        .withWillQos(MqttQos.atLeastOnce);
+    _client!.connectionMessage = connMessage;
+
+    try {
+      await _client!.connect();
+      debugPrint('MQTT Connected');
+      _client!.subscribe('linker/${_currentUser.id}', MqttQos.atLeastOnce);
+      _client!.updates!.listen((List<MqttReceivedMessage<MqttMessage>> c) {
+        final MqttPublishMessage recMess = c[0].payload as MqttPublishMessage;
+        final String pt = MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
+        _handleIncomingMessage(pt);
+      });
+    } catch (e) {
+      debugPrint('MQTT connection failed: $e');
+    }
+  }
+
+  void _handleIncomingMessage(String payload) {
+    try {
+      final decoded = jsonDecode(payload);
+      final String type = decoded['type'] ?? 'MESSAGE';
+      final String senderId = decoded['senderId'];
+      final String senderName = decoded['senderName'] ?? 'Peer-$senderId';
+      final String text = decoded['text'] ?? '';
+
+      setState(() {
+        int index = _users.indexWhere((u) => u.id == senderId);
+        if (index == -1) {
+          _users.insert(0, ChatUser(name: senderName, id: senderId, messages: []));
+          index = 0;
+          
+          // If we received a connection request, send our info back
+          if (type == 'CONNECT') {
+             _sendHandshake(senderId, isResponse: true);
+          }
+        } else {
+          // Update name if changed
+          _users[index].name = senderName;
+        }
+
+        if (type == 'CONNECT') {
+          _users[index].messages.insert(0, ChatMessage(
+            text: 'Connection established with $senderName',
+            isMe: false,
+            timestamp: DateTime.now(),
+            isSystem: true,
+          ));
+        } else {
+          _users[index].messages.insert(0, ChatMessage(
+            text: text,
+            isMe: false,
+            timestamp: DateTime.now(),
+          ));
+        }
+      });
+      _saveData();
+    } catch (e) {
+      debugPrint('Error handling message: $e');
+    }
   }
 
   Future<void> _loadData() async {
@@ -138,18 +213,20 @@ class _MainScreenState extends State<MainScreen> {
       final userJson = prefs.getString('user_profile');
       if (userJson != null) {
         _currentUser = UserProfile.fromJson(jsonDecode(userJson));
+      } else {
+        await prefs.setString('user_profile', jsonEncode(_currentUser.toJson()));
       }
       final connectionsJson = prefs.getString('connections');
       if (connectionsJson != null) {
         final List decoded = jsonDecode(connectionsJson);
-        _users = decoded.map((u) => ChatUser.fromJson(u)).toList();
+        setState(() {
+          _users = decoded.map((u) => ChatUser.fromJson(u)).toList();
+        });
       }
     } catch (e) {
       debugPrint('Error loading data: $e');
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -159,32 +236,67 @@ class _MainScreenState extends State<MainScreen> {
     await prefs.setString('connections', jsonEncode(_users.map((u) => u.toJson()).toList()));
   }
 
-  void _addNewConnection(String linkerId) {
-    final Map<String, String> _globalDirectory = {
-      'LNK-1234-AB': 'Sarah Wilson',
-      'LNK-5678-CD': 'Mike Ross',
-    };
-
-    if (_globalDirectory.containsKey(linkerId)) {
-      final userName = _globalDirectory[linkerId]!;
-      if (_users.any((u) => u.id == linkerId)) return;
-      setState(() {
-        _users.insert(0, ChatUser(
-          name: userName,
-          lastMessage: 'Connected!',
-          time: 'Just now',
-          id: linkerId,
-        ));
-      });
-      _saveData();
+  void _addNewConnection(String peerId) {
+    if (peerId == _currentUser.id) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("You can't link to yourself!")));
+       return;
     }
+    
+    if (_users.any((u) => u.id == peerId)) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Already linked!")));
+       return;
+    }
+
+    setState(() {
+      _users.insert(0, ChatUser(
+        name: 'Connecting...',
+        id: peerId,
+        messages: [
+          ChatMessage(text: 'Requesting connection...', isMe: true, timestamp: DateTime.now(), isSystem: true)
+        ],
+      ));
+    });
+    
+    _sendHandshake(peerId);
+    _saveData();
   }
 
-  void _addMessage(String userId, ChatMessage message) {
+  void _sendHandshake(String peerId, {bool isResponse = false}) {
+    if (_client?.connectionStatus?.state != MqttConnectionState.connected) return;
+
+    final payload = jsonEncode({
+      'type': 'CONNECT',
+      'senderId': _currentUser.id,
+      'senderName': _currentUser.name,
+      'text': isResponse ? 'Accepted connection' : 'Requested connection',
+    });
+
+    final builder = MqttClientPayloadBuilder();
+    builder.addString(payload);
+    _client!.publishMessage('linker/$peerId', MqttQos.atLeastOnce, builder.payload!);
+  }
+
+  void _sendMessage(String peerId, String text) {
+    if (_client?.connectionStatus?.state != MqttConnectionState.connected) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Not connected to global network")));
+       return;
+    }
+
+    final payload = jsonEncode({
+      'type': 'MESSAGE',
+      'senderId': _currentUser.id,
+      'senderName': _currentUser.name,
+      'text': text,
+    });
+
+    final builder = MqttClientPayloadBuilder();
+    builder.addString(payload);
+    _client!.publishMessage('linker/$peerId', MqttQos.atLeastOnce, builder.payload!);
+
     setState(() {
-      final index = _users.indexWhere((u) => u.id == userId);
+      int index = _users.indexWhere((u) => u.id == peerId);
       if (index != -1) {
-        _users[index].messages.insert(0, message);
+        _users[index].messages.insert(0, ChatMessage(text: text, isMe: true, timestamp: DateTime.now()));
       }
     });
     _saveData();
@@ -225,9 +337,10 @@ class ChatListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Messages'),
+        title: const Text('Global Links'),
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
@@ -240,7 +353,7 @@ class ChatListScreen extends StatelessWidget {
                   children: [
                     ListTile(
                       leading: const Icon(Icons.qr_code_scanner),
-                      title: const Text('Scan QR Code'),
+                      title: const Text('Scan Global ID'),
                       onTap: () {
                         Navigator.pop(context);
                         Navigator.push(context, MaterialPageRoute(builder: (context) => QRScannerScreen(onScan: onAddConnection)));
@@ -248,7 +361,7 @@ class ChatListScreen extends StatelessWidget {
                     ),
                     ListTile(
                       leading: const Icon(Icons.qr_code),
-                      title: const Text('My QR Code'),
+                      title: const Text('My Global ID'),
                       onTap: () {
                         Navigator.pop(context);
                         showDialog(
@@ -258,7 +371,7 @@ class ChatListScreen extends StatelessWidget {
                             content: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Text('My Linker ID'),
+                                const Text('Global Linker ID'),
                                 const SizedBox(height: 20),
                                 Container(
                                   color: Colors.white,
@@ -270,7 +383,8 @@ class ChatListScreen extends StatelessWidget {
                                   ),
                                 ),
                                 const SizedBox(height: 20),
-                                Text(myId, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                Text(myId, style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2)),
+                                const Text('Anyone can scan this globally', style: TextStyle(fontSize: 10, color: Colors.white38)),
                               ],
                             ),
                           ),
@@ -286,18 +400,21 @@ class ChatListScreen extends StatelessWidget {
         ],
       ),
       body: users.isEmpty
-          ? const Center(child: Text('No connections', style: TextStyle(color: Colors.white24)))
+          ? const Center(child: Text('No global links.\nScan an ID to start!', textAlign: TextAlign.center, style: TextStyle(color: Colors.white24)))
           : ListView.builder(
               itemCount: users.length,
               itemBuilder: (context, index) {
                 final user = users[index];
+                final lastMsg = user.messages.isNotEmpty ? user.messages.first : null;
                 return ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.person)),
+                  leading: const CircleAvatar(child: Icon(Icons.public)),
                   title: Text(user.name),
-                  subtitle: Text(user.messages.isNotEmpty ? user.messages.first.text : user.lastMessage),
+                  subtitle: lastMsg != null 
+                    ? Text(lastMsg.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: lastMsg.isSystem ? Colors.blueAccent : null))
+                    : const Text('No messages yet'),
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => MessagePage(
                     user: user,
-                    onMessageSent: (msg) => context.findAncestorStateOfType<_MainScreenState>()?._addMessage(user.id, msg),
+                    onMessageSent: (text) => context.findAncestorStateOfType<_MainScreenState>()?._sendMessage(user.id, text),
                   ))),
                 );
               },
@@ -334,7 +451,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
 
 class MessagePage extends StatefulWidget {
   final ChatUser user;
-  final Function(ChatMessage) onMessageSent;
+  final Function(String) onMessageSent;
   const MessagePage({super.key, required this.user, required this.onMessageSent});
   @override
   State<MessagePage> createState() => _MessagePageState();
@@ -355,6 +472,14 @@ class _MessagePageState extends State<MessagePage> {
               itemCount: widget.user.messages.length,
               itemBuilder: (context, index) {
                 final m = widget.user.messages[index];
+                if (m.isSystem) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Text(m.text, style: const TextStyle(fontSize: 12, color: Colors.blueAccent, fontStyle: FontStyle.italic)),
+                    ),
+                  );
+                }
                 return Align(
                   alignment: m.isMe ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
@@ -371,12 +496,10 @@ class _MessagePageState extends State<MessagePage> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Expanded(child: TextField(controller: _ctrl, decoration: const InputDecoration(hintText: 'Message'))),
+                Expanded(child: TextField(controller: _ctrl, decoration: const InputDecoration(hintText: 'Global Message'))),
                 IconButton(icon: const Icon(Icons.send), onPressed: () {
                   if (_ctrl.text.isEmpty) return;
-                  final msg = ChatMessage(text: _ctrl.text, isMe: true, timestamp: DateTime.now());
-                  widget.onMessageSent(msg);
-                  setState(() => widget.user.messages.insert(0, msg));
+                  widget.onMessageSent(_ctrl.text);
                   _ctrl.clear();
                 }),
               ],
@@ -414,7 +537,7 @@ class ProfileScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               Text(user.name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-              Text(user.id, style: const TextStyle(color: Colors.white38)),
+              Text("Global ID: ${user.id}", style: const TextStyle(color: Colors.white38, letterSpacing: 2)),
               const SizedBox(height: 40),
               ListTile(
                 leading: const Icon(Icons.edit),
