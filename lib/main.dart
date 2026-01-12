@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 void main() {
   runApp(const LinkerApp());
@@ -110,7 +111,6 @@ class _MainScreenState extends State<MainScreen> {
     profileImageUrl: null,
   );
 
-  // Mock Global User Directory for "World Wide" simulation
   final Map<String, String> _globalDirectory = {
     'LNK-1234-AB': 'Sarah Wilson',
     'LNK-5678-CD': 'Mike Ross',
@@ -126,7 +126,6 @@ class _MainScreenState extends State<MainScreen> {
   void _addNewConnection(String linkerId) {
     if (_globalDirectory.containsKey(linkerId)) {
       final userName = _globalDirectory[linkerId]!;
-      // Check if already connected
       if (_users.any((u) => u.id == linkerId)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Already connected with $userName')),
@@ -214,47 +213,12 @@ class ChatListScreen extends StatelessWidget {
 
   const ChatListScreen({super.key, required this.users, required this.onAddConnection, required this.myId});
 
-  void _showScanDialog(BuildContext context) {
-    final controller = TextEditingController();
-    final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: theme.colorScheme.surface,
-        title: const Text('Scan & Connect', style: TextStyle(fontSize: 18)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Enter the Linker ID to connect worldwide.', 
-              style: TextStyle(fontSize: 13, color: Colors.white54)),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              style: const TextStyle(letterSpacing: 1.5),
-              decoration: const InputDecoration(
-                hintText: 'e.g. LNK-1234-AB',
-                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text('Try: LNK-1234-AB or LNK-5678-CD', 
-              style: TextStyle(fontSize: 10, color: Colors.white24)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white38)),
-          ),
-          TextButton(
-            onPressed: () {
-              onAddConnection(controller.text.trim().toUpperCase());
-              Navigator.pop(context);
-            },
-            child: const Text('Connect', style: TextStyle(color: Colors.white)),
-          ),
-        ],
+  void _openScanner(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => QRScannerScreen(onScan: (id) {
+          onAddConnection(id);
+        }),
       ),
     );
   }
@@ -313,10 +277,10 @@ class ChatListScreen extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.qr_code_scanner_rounded),
               title: const Text('Scan QR Code'),
-              subtitle: const Text('Simulate connection by ID', style: TextStyle(fontSize: 12, color: Colors.white24)),
+              subtitle: const Text('Connect by scanning a Linker QR', style: TextStyle(fontSize: 12, color: Colors.white24)),
               onTap: () {
                 Navigator.pop(context);
-                _showScanDialog(context);
+                _openScanner(context);
               },
             ),
             ListTile(
@@ -412,6 +376,30 @@ class ChatListScreen extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class QRScannerScreen extends StatelessWidget {
+  final Function(String) onScan;
+  const QRScannerScreen({super.key, required this.onScan});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Scan QR Code')),
+      body: MobileScanner(
+        onDetect: (capture) {
+          final List<Barcode> barcodes = capture.barcodes;
+          for (final barcode in barcodes) {
+            if (barcode.rawValue != null) {
+              onScan(barcode.rawValue!);
+              Navigator.of(context).pop();
+              break;
+            }
+          }
+        },
+      ),
     );
   }
 }
