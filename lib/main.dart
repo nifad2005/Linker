@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   runApp(const LinkerApp());
@@ -28,8 +30,9 @@ class ChatUser {
   final String name;
   final String lastMessage;
   final String time;
+  final String id;
 
-  ChatUser({required this.name, required this.lastMessage, required this.time});
+  ChatUser({required this.name, required this.lastMessage, required this.time, required this.id});
 }
 
 class LinkerApp extends StatelessWidget {
@@ -101,40 +104,78 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
   
-  // Initialize directly to avoid LateInitializationError
   UserProfile _currentUser = UserProfile(
     name: 'John Doe',
     id: 'LNK-7729-XQ',
     profileImageUrl: null,
   );
 
+  // Mock Global User Directory for "World Wide" simulation
+  final Map<String, String> _globalDirectory = {
+    'LNK-1234-AB': 'Sarah Wilson',
+    'LNK-5678-CD': 'Mike Ross',
+    'LNK-9012-EF': 'Emma Watson',
+    'LNK-4321-ZX': 'David Miller',
+  };
+
   final List<ChatUser> _users = [
-    ChatUser(name: 'Alex Rivera', lastMessage: 'See you there!', time: '2m ago'),
-    ChatUser(name: 'Sarah Chen', lastMessage: 'The design looks great.', time: '15m ago'),
-    ChatUser(name: 'Jordan Smith', lastMessage: 'Can we reschedule?', time: '1h ago'),
+    ChatUser(name: 'Alex Rivera', lastMessage: 'See you there!', time: '2m ago', id: 'LNK-0001-AR'),
+    ChatUser(name: 'Sarah Chen', lastMessage: 'The design looks great.', time: '15m ago', id: 'LNK-0002-SC'),
   ];
 
-  void _addNewConnection() {
+  void _addNewConnection(String linkerId) {
+    if (_globalDirectory.containsKey(linkerId)) {
+      final userName = _globalDirectory[linkerId]!;
+      // Check if already connected
+      if (_users.any((u) => u.id == linkerId)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Already connected with $userName')),
+        );
+        return;
+      }
+      setState(() {
+        _users.insert(0, ChatUser(
+          name: userName,
+          lastMessage: 'Connected via Worldwide Link!',
+          time: 'Just now',
+          id: linkerId,
+        ));
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Successfully connected to $userName!')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid Linker ID. No user found.')),
+      );
+    }
+  }
+
+  void _updateName(String newName) {
     setState(() {
-      _users.insert(0, ChatUser(
-        name: 'New Connection ${_users.length + 1}',
-        lastMessage: 'Connected successfully!',
-        time: 'Just now',
-      ));
+      _currentUser.name = newName;
     });
   }
 
-  void _updateProfile(String newName) {
+  void _updateImage(String path) {
     setState(() {
-      _currentUser.name = newName;
+      _currentUser.profileImageUrl = path;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final List<Widget> _screens = [
-      ChatListScreen(users: _users, onAddConnection: _addNewConnection),
-      ProfileScreen(user: _currentUser, onUpdateName: _updateProfile),
+      ChatListScreen(
+        users: _users, 
+        onAddConnection: _addNewConnection,
+        myId: _currentUser.id,
+      ),
+      ProfileScreen(
+        user: _currentUser, 
+        onUpdateName: _updateName,
+        onUpdateImage: _updateImage,
+      ),
     ];
 
     return Scaffold(
@@ -168,9 +209,84 @@ class _MainScreenState extends State<MainScreen> {
 
 class ChatListScreen extends StatelessWidget {
   final List<ChatUser> users;
-  final VoidCallback onAddConnection;
+  final Function(String) onAddConnection;
+  final String myId;
 
-  const ChatListScreen({super.key, required this.users, required this.onAddConnection});
+  const ChatListScreen({super.key, required this.users, required this.onAddConnection, required this.myId});
+
+  void _showScanDialog(BuildContext context) {
+    final controller = TextEditingController();
+    final theme = Theme.of(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        title: const Text('Scan & Connect', style: TextStyle(fontSize: 18)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Enter the Linker ID to connect worldwide.', 
+              style: TextStyle(fontSize: 13, color: Colors.white54)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              style: const TextStyle(letterSpacing: 1.5),
+              decoration: const InputDecoration(
+                hintText: 'e.g. LNK-1234-AB',
+                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text('Try: LNK-1234-AB or LNK-5678-CD', 
+              style: TextStyle(fontSize: 10, color: Colors.white24)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white38)),
+          ),
+          TextButton(
+            onPressed: () {
+              onAddConnection(controller.text.trim().toUpperCase());
+              Navigator.pop(context);
+            },
+            child: const Text('Connect', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showMyQrDialog(BuildContext context) {
+    final theme = Theme.of(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: theme.colorScheme.surface,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(Icons.qr_code_2_rounded, size: 200, color: theme.scaffoldBackgroundColor),
+            ),
+            const SizedBox(height: 24),
+            const Text('My Linker ID', style: TextStyle(fontSize: 14, color: Colors.white54)),
+            const SizedBox(height: 4),
+            Text(myId, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 1)),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
 
   void _showConnectionOptions(BuildContext context) {
     final theme = Theme.of(context);
@@ -197,16 +313,19 @@ class ChatListScreen extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.qr_code_scanner_rounded),
               title: const Text('Scan QR Code'),
+              subtitle: const Text('Simulate connection by ID', style: TextStyle(fontSize: 12, color: Colors.white24)),
               onTap: () {
                 Navigator.pop(context);
-                onAddConnection();
+                _showScanDialog(context);
               },
             ),
             ListTile(
               leading: const Icon(Icons.qr_code_2_rounded),
               title: const Text('My QR Code'),
+              subtitle: const Text('Share your unique Linker ID', style: TextStyle(fontSize: 12, color: Colors.white24)),
               onTap: () {
                 Navigator.pop(context);
+                _showMyQrDialog(context);
               },
             ),
           ],
@@ -466,8 +585,28 @@ class _MessagePageState extends State<MessagePage> {
 class ProfileScreen extends StatelessWidget {
   final UserProfile user;
   final Function(String) onUpdateName;
+  final Function(String) onUpdateImage;
 
-  const ProfileScreen({super.key, required this.user, required this.onUpdateName});
+  const ProfileScreen({
+    super.key, 
+    required this.user, 
+    required this.onUpdateName,
+    required this.onUpdateImage,
+  });
+
+  Future<void> _pickImage(BuildContext context) async {
+    final ImagePicker picker = ImagePicker();
+    try {
+      final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+      if (image != null) {
+        onUpdateImage(image.path);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error picking image: $e')),
+      );
+    }
+  }
 
   void _showEditNameDialog(BuildContext context) {
     final controller = TextEditingController(text: user.name);
@@ -520,17 +659,20 @@ class ProfileScreen extends StatelessWidget {
                   backgroundColor: theme.colorScheme.surface,
                   child: user.profileImageUrl == null 
                     ? Icon(Icons.person, size: 60, color: theme.colorScheme.onSurface.withOpacity(0.2))
-                    : ClipOval(child: Image.network(user.profileImageUrl!, fit: BoxFit.cover)),
+                    : ClipOval(
+                        child: Image.file(
+                          File(user.profileImageUrl!), 
+                          fit: BoxFit.cover,
+                          width: 120,
+                          height: 120,
+                        ),
+                      ),
                 ),
                 Positioned(
                   bottom: 0,
                   right: 0,
                   child: GestureDetector(
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Image picker not implemented')),
-                      );
-                    },
+                    onTap: () => _pickImage(context),
                     child: Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
