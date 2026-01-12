@@ -1,9 +1,13 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const LinkerApp());
 }
 
@@ -13,6 +17,18 @@ class UserProfile {
   String? profileImageUrl;
 
   UserProfile({required this.name, required this.id, this.profileImageUrl});
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'id': id,
+    'profileImageUrl': profileImageUrl,
+  };
+
+  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
+    name: json['name'],
+    id: json['id'],
+    profileImageUrl: json['profileImageUrl'],
+  );
 }
 
 class ChatMessage {
@@ -25,6 +41,18 @@ class ChatMessage {
     required this.isMe,
     required this.timestamp,
   });
+
+  Map<String, dynamic> toJson() => {
+    'text': text,
+    'isMe': isMe,
+    'timestamp': timestamp.toIso8601String(),
+  };
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
+    text: json['text'],
+    isMe: json['isMe'],
+    timestamp: DateTime.parse(json['timestamp']),
+  );
 }
 
 class ChatUser {
@@ -32,8 +60,31 @@ class ChatUser {
   final String lastMessage;
   final String time;
   final String id;
+  final List<ChatMessage> messages;
 
-  ChatUser({required this.name, required this.lastMessage, required this.time, required this.id});
+  ChatUser({
+    required this.name,
+    required this.lastMessage,
+    required this.time,
+    required this.id,
+    this.messages = const [],
+  });
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'lastMessage': lastMessage,
+    'time': time,
+    'id': id,
+    'messages': messages.map((m) => m.toJson()).toList(),
+  };
+
+  factory ChatUser.fromJson(Map<String, dynamic> json) => ChatUser(
+    name: json['name'],
+    lastMessage: json['lastMessage'],
+    time: json['time'],
+    id: json['id'],
+    messages: (json['messages'] as List?)?.map((m) => ChatMessage.fromJson(m)).toList() ?? [],
+  );
 }
 
 class LinkerApp extends StatelessWidget {
@@ -41,54 +92,15 @@ class LinkerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const Color background = Color(0xFF1A1A1A);
-    const Color surface = Color(0xFF242424);
-    const Color primaryText = Color(0xFFD1D1D1);
-    const Color secondaryText = Color(0xFF8E8E8E);
-
     return MaterialApp(
       title: 'Linker',
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.dark,
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
+      theme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF1A1A1A),
         colorScheme: const ColorScheme.dark(
-          primary: primaryText,
-          onPrimary: background,
-          surface: surface,
-          onSurface: primaryText,
-          background: background,
-          onBackground: primaryText,
+          primary: Colors.white,
+          surface: Color(0xFF242424),
         ),
-        scaffoldBackgroundColor: background,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: background,
-          elevation: 0,
-          centerTitle: false,
-          iconTheme: IconThemeData(color: primaryText, size: 20),
-          titleTextStyle: TextStyle(
-            color: primaryText,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          backgroundColor: background,
-          selectedItemColor: primaryText,
-          unselectedItemColor: secondaryText,
-          type: BottomNavigationBarType.fixed,
-          elevation: 0,
-        ),
-        textTheme: const TextTheme(
-          headlineMedium: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: primaryText,
-          ),
-          bodyLarge: TextStyle(color: primaryText, fontSize: 16),
-          bodyMedium: TextStyle(color: primaryText, fontSize: 14),
-        ),
-        iconTheme: const IconThemeData(color: primaryText),
       ),
       home: const MainScreen(),
     );
@@ -104,6 +116,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
+  bool _isLoading = true;
   
   UserProfile _currentUser = UserProfile(
     name: 'John Doe',
@@ -111,96 +124,93 @@ class _MainScreenState extends State<MainScreen> {
     profileImageUrl: null,
   );
 
-  final Map<String, String> _globalDirectory = {
-    'LNK-1234-AB': 'Sarah Wilson',
-    'LNK-5678-CD': 'Mike Ross',
-    'LNK-9012-EF': 'Emma Watson',
-    'LNK-4321-ZX': 'David Miller',
-  };
+  List<ChatUser> _users = [];
 
-  final List<ChatUser> _users = [
-    ChatUser(name: 'Alex Rivera', lastMessage: 'See you there!', time: '2m ago', id: 'LNK-0001-AR'),
-    ChatUser(name: 'Sarah Chen', lastMessage: 'The design looks great.', time: '15m ago', id: 'LNK-0002-SC'),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userJson = prefs.getString('user_profile');
+      if (userJson != null) {
+        _currentUser = UserProfile.fromJson(jsonDecode(userJson));
+      }
+      final connectionsJson = prefs.getString('connections');
+      if (connectionsJson != null) {
+        final List decoded = jsonDecode(connectionsJson);
+        _users = decoded.map((u) => ChatUser.fromJson(u)).toList();
+      }
+    } catch (e) {
+      debugPrint('Error loading data: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _saveData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_profile', jsonEncode(_currentUser.toJson()));
+    await prefs.setString('connections', jsonEncode(_users.map((u) => u.toJson()).toList()));
+  }
 
   void _addNewConnection(String linkerId) {
+    final Map<String, String> _globalDirectory = {
+      'LNK-1234-AB': 'Sarah Wilson',
+      'LNK-5678-CD': 'Mike Ross',
+    };
+
     if (_globalDirectory.containsKey(linkerId)) {
       final userName = _globalDirectory[linkerId]!;
-      if (_users.any((u) => u.id == linkerId)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Already connected with $userName')),
-        );
-        return;
-      }
+      if (_users.any((u) => u.id == linkerId)) return;
       setState(() {
         _users.insert(0, ChatUser(
           name: userName,
-          lastMessage: 'Connected via Worldwide Link!',
+          lastMessage: 'Connected!',
           time: 'Just now',
           id: linkerId,
         ));
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Successfully connected to $userName!')),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid Linker ID. No user found.')),
-      );
+      _saveData();
     }
   }
 
-  void _updateName(String newName) {
+  void _addMessage(String userId, ChatMessage message) {
     setState(() {
-      _currentUser.name = newName;
+      final index = _users.indexWhere((u) => u.id == userId);
+      if (index != -1) {
+        _users[index].messages.insert(0, message);
+      }
     });
-  }
-
-  void _updateImage(String path) {
-    setState(() {
-      _currentUser.profileImageUrl = path;
-    });
+    _saveData();
   }
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> _screens = [
-      ChatListScreen(
-        users: _users, 
-        onAddConnection: _addNewConnection,
-        myId: _currentUser.id,
-      ),
-      ProfileScreen(
-        user: _currentUser, 
-        onUpdateName: _updateName,
-        onUpdateImage: _updateImage,
-      ),
-    ];
+    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     return Scaffold(
-      body: _screens[_selectedIndex],
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(color: Colors.white.withOpacity(0.03), width: 0.5),
-          ),
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _selectedIndex,
-          onTap: (index) => setState(() => _selectedIndex = index),
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.chat_bubble_outline),
-              activeIcon: Icon(Icons.chat_bubble),
-              label: 'Chat',
+      body: _selectedIndex == 0 
+          ? ChatListScreen(users: _users, onAddConnection: _addNewConnection, myId: _currentUser.id)
+          : ProfileScreen(
+              user: _currentUser, 
+              onUpdateName: (name) { setState(() => _currentUser.name = name); _saveData(); },
+              onUpdateImage: (path) { setState(() => _currentUser.profileImageUrl = path); _saveData(); },
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline),
-              activeIcon: Icon(Icons.person),
-              label: 'Profile',
-            ),
-          ],
-        ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (index) => setState(() => _selectedIndex = index),
+        selectedItemColor: Colors.white,
+        unselectedItemColor: Colors.white38,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.chat_bubble), label: 'Chat'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+        ],
       ),
     );
   }
@@ -213,355 +223,163 @@ class ChatListScreen extends StatelessWidget {
 
   const ChatListScreen({super.key, required this.users, required this.onAddConnection, required this.myId});
 
-  void _openScanner(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => QRScannerScreen(onScan: (id) {
-          onAddConnection(id);
-        }),
-      ),
-    );
-  }
-
-  void _showMyQrDialog(BuildContext context) {
-    final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: theme.colorScheme.surface,
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(Icons.qr_code_2_rounded, size: 200, color: theme.scaffoldBackgroundColor),
-            ),
-            const SizedBox(height: 24),
-            const Text('My Linker ID', style: TextStyle(fontSize: 14, color: Colors.white54)),
-            const SizedBox(height: 4),
-            Text(myId, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 1)),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showConnectionOptions(BuildContext context) {
-    final theme = Theme.of(context);
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: theme.scaffoldBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white10,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 24),
-            ListTile(
-              leading: const Icon(Icons.qr_code_scanner_rounded),
-              title: const Text('Scan QR Code'),
-              subtitle: const Text('Connect by scanning a Linker QR', style: TextStyle(fontSize: 12, color: Colors.white24)),
-              onTap: () {
-                Navigator.pop(context);
-                _openScanner(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.qr_code_2_rounded),
-              title: const Text('My QR Code'),
-              subtitle: const Text('Share your unique Linker ID', style: TextStyle(fontSize: 12, color: Colors.white24)),
-              onTap: () {
-                Navigator.pop(context);
-                _showMyQrDialog(context);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final secondaryText = theme.colorScheme.onSurface.withOpacity(0.4);
-
-    return CustomScrollView(
-      slivers: [
-        SliverAppBar(
-          floating: true,
-          snap: true,
-          title: const Text('Messages', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-          actions: [
-            IconButton(
-              onPressed: () => _showConnectionOptions(context),
-              icon: const Icon(Icons.add_rounded, size: 28),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ),
-        SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final user = users[index];
-              return InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => MessagePage(userName: user.name),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Messages'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () {
+              showModalBottomSheet(
+                context: context,
+                backgroundColor: const Color(0xFF242424),
+                builder: (context) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.qr_code_scanner),
+                      title: const Text('Scan QR Code'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => QRScannerScreen(onScan: onAddConnection)));
+                      },
                     ),
-                  );
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 28,
-                        backgroundColor: theme.colorScheme.surface,
-                        child: Icon(Icons.person, color: theme.colorScheme.onSurface.withOpacity(0.2), size: 28),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    ListTile(
+                      leading: const Icon(Icons.qr_code),
+                      title: const Text('My QR Code'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            backgroundColor: const Color(0xFF242424),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
-                                  user.name,
-                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                                const Text('My Linker ID'),
+                                const SizedBox(height: 20),
+                                Container(
+                                  color: Colors.white,
+                                  padding: const EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 200,
+                                    height: 200,
+                                    child: QrImageView(data: myId, version: QrVersions.auto),
+                                  ),
                                 ),
-                                Text(
-                                  user.time,
-                                  style: TextStyle(color: secondaryText, fontSize: 12),
-                                ),
+                                const SizedBox(height: 20),
+                                Text(myId, style: const TextStyle(fontWeight: FontWeight.bold)),
                               ],
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              user.lastMessage,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: secondaryText, fontSize: 14),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                  ],
                 ),
               );
             },
-            childCount: users.length,
           ),
-        ),
-      ],
+        ],
+      ),
+      body: users.isEmpty
+          ? const Center(child: Text('No connections', style: TextStyle(color: Colors.white24)))
+          : ListView.builder(
+              itemCount: users.length,
+              itemBuilder: (context, index) {
+                final user = users[index];
+                return ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.person)),
+                  title: Text(user.name),
+                  subtitle: Text(user.messages.isNotEmpty ? user.messages.first.text : user.lastMessage),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => MessagePage(
+                    user: user,
+                    onMessageSent: (msg) => context.findAncestorStateOfType<_MainScreenState>()?._addMessage(user.id, msg),
+                  ))),
+                );
+              },
+            ),
     );
   }
 }
 
-class QRScannerScreen extends StatelessWidget {
+class QRScannerScreen extends StatefulWidget {
   final Function(String) onScan;
   const QRScannerScreen({super.key, required this.onScan});
+  @override
+  State<QRScannerScreen> createState() => _QRScannerScreenState();
+}
 
+class _QRScannerScreenState extends State<QRScannerScreen> {
+  bool _scanned = false;
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Scan QR Code')),
-      body: MobileScanner(
-        onDetect: (capture) {
-          final List<Barcode> barcodes = capture.barcodes;
-          for (final barcode in barcodes) {
-            if (barcode.rawValue != null) {
-              onScan(barcode.rawValue!);
-              Navigator.of(context).pop();
-              break;
-            }
-          }
-        },
-      ),
+      appBar: AppBar(title: const Text('Scan QR')),
+      body: MobileScanner(onDetect: (cap) {
+        if (_scanned) return;
+        final code = cap.barcodes.first.rawValue;
+        if (code != null) {
+          setState(() => _scanned = true);
+          widget.onScan(code);
+          Navigator.pop(context);
+        }
+      }),
     );
   }
 }
 
 class MessagePage extends StatefulWidget {
-  final String userName;
-  const MessagePage({super.key, required this.userName});
-
+  final ChatUser user;
+  final Function(ChatMessage) onMessageSent;
+  const MessagePage({super.key, required this.user, required this.onMessageSent});
   @override
   State<MessagePage> createState() => _MessagePageState();
 }
 
 class _MessagePageState extends State<MessagePage> {
-  final TextEditingController _controller = TextEditingController();
-  final List<ChatMessage> _messages = [
-    ChatMessage(text: 'Hey! Are we still on for the meeting today?', isMe: false, timestamp: DateTime.now().subtract(const Duration(minutes: 5))),
-    ChatMessage(text: 'Yeah, that sounds perfect. Let\'s do it.', isMe: true, timestamp: DateTime.now().subtract(const Duration(minutes: 2))),
-  ];
-
-  void _handleSend() {
-    if (_controller.text.trim().isEmpty) return;
-    setState(() {
-      _messages.insert(0, ChatMessage(
-        text: _controller.text.trim(),
-        isMe: true,
-        timestamp: DateTime.now(),
-      ));
-      _controller.clear();
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
+  final TextEditingController _ctrl = TextEditingController();
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final secondaryText = theme.colorScheme.onSurface.withOpacity(0.4);
-
     return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        leadingWidth: 56,
-        title: Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: theme.colorScheme.surface,
-              child: Icon(Icons.person, size: 18, color: theme.colorScheme.onSurface.withOpacity(0.2)),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(widget.userName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                Text('Online', style: TextStyle(fontSize: 12, color: Colors.green.withOpacity(0.6))),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.videocam_outlined),
-          ),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.info_outline),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
+      appBar: AppBar(title: Text(widget.user.name)),
       body: Column(
         children: [
           Expanded(
             child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-              itemCount: _messages.length,
               reverse: true,
+              padding: const EdgeInsets.all(16),
+              itemCount: widget.user.messages.length,
               itemBuilder: (context, index) {
-                final message = _messages[index];
+                final m = widget.user.messages[index];
                 return Align(
-                  alignment: message.isMe ? Alignment.centerRight : Alignment.centerLeft,
+                  alignment: m.isMe ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: message.isMe ? theme.colorScheme.onSurface.withOpacity(0.07) : theme.colorScheme.surface,
-                      borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(20),
-                        topRight: const Radius.circular(20),
-                        bottomLeft: Radius.circular(message.isMe ? 20 : 4),
-                        bottomRight: Radius.circular(message.isMe ? 4 : 20),
-                      ),
-                    ),
-                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          message.text,
-                          style: TextStyle(
-                            fontSize: 15,
-                            height: 1.4,
-                            color: theme.colorScheme.onSurface.withOpacity(0.85),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${message.timestamp.hour}:${message.timestamp.minute.toString().padLeft(2, '0')} ${message.timestamp.hour >= 12 ? 'PM' : 'AM'}',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: secondaryText.withOpacity(0.5),
-                          ),
-                        ),
-                      ],
-                    ),
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: m.isMe ? Colors.white10 : const Color(0xFF242424), borderRadius: BorderRadius.circular(12)),
+                    child: Text(m.text),
                   ),
                 );
               },
             ),
           ),
-          SafeArea(
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: TextField(
-                        controller: _controller,
-                        onSubmitted: (_) => _handleSend(),
-                        decoration: InputDecoration(
-                          hintText: 'Message...',
-                          hintStyle: TextStyle(color: secondaryText, fontSize: 15),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        style: const TextStyle(fontSize: 15),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  CircleAvatar(
-                    backgroundColor: theme.colorScheme.onSurface.withOpacity(0.07),
-                    child: IconButton(
-                      onPressed: _handleSend,
-                      icon: const Icon(Icons.arrow_upward_rounded, size: 20),
-                      color: theme.colorScheme.onSurface,
-                    ),
-                  ),
-                ],
-              ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(child: TextField(controller: _ctrl, decoration: const InputDecoration(hintText: 'Message'))),
+                IconButton(icon: const Icon(Icons.send), onPressed: () {
+                  if (_ctrl.text.isEmpty) return;
+                  final msg = ChatMessage(text: _ctrl.text, isMe: true, timestamp: DateTime.now());
+                  widget.onMessageSent(msg);
+                  setState(() => widget.user.messages.insert(0, msg));
+                  _ctrl.clear();
+                }),
+              ],
             ),
           ),
         ],
@@ -574,166 +392,45 @@ class ProfileScreen extends StatelessWidget {
   final UserProfile user;
   final Function(String) onUpdateName;
   final Function(String) onUpdateImage;
-
-  const ProfileScreen({
-    super.key, 
-    required this.user, 
-    required this.onUpdateName,
-    required this.onUpdateImage,
-  });
-
-  Future<void> _pickImage(BuildContext context) async {
-    final ImagePicker picker = ImagePicker();
-    try {
-      final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-      if (image != null) {
-        onUpdateImage(image.path);
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error picking image: $e')),
-      );
-    }
-  }
-
-  void _showEditNameDialog(BuildContext context) {
-    final controller = TextEditingController(text: user.name);
-    final theme = Theme.of(context);
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: theme.colorScheme.surface,
-        title: const Text('Edit Name', style: TextStyle(fontSize: 18)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Enter your name',
-            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white38)),
-          ),
-          TextButton(
-            onPressed: () {
-              onUpdateName(controller.text.trim());
-              Navigator.pop(context);
-            },
-            child: const Text('Save', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
+  const ProfileScreen({super.key, required this.user, required this.onUpdateName, required this.onUpdateImage});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final secondaryText = theme.colorScheme.onSurface.withOpacity(0.4);
-
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          const SizedBox(height: 80),
-          Center(
-            child: Stack(
-              children: [
-                CircleAvatar(
-                  radius: 60,
-                  backgroundColor: theme.colorScheme.surface,
-                  child: user.profileImageUrl == null 
-                    ? Icon(Icons.person, size: 60, color: theme.colorScheme.onSurface.withOpacity(0.2))
-                    : ClipOval(
-                        child: Image.file(
-                          File(user.profileImageUrl!), 
-                          fit: BoxFit.cover,
-                          width: 120,
-                          height: 120,
-                        ),
-                      ),
-                ),
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: GestureDetector(
-                    onTap: () => _pickImage(context),
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: theme.scaffoldBackgroundColor,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: const BoxDecoration(
-                          color: Colors.white10,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.camera_alt_outlined, size: 16),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+    return Scaffold(
+      body: SingleChildScrollView(
+        child: Center(
+          child: Column(
+            children: [
+              const SizedBox(height: 80),
+              Stack(
+                alignment: Alignment.bottomRight,
+                children: [
+                  CircleAvatar(radius: 60, backgroundImage: user.profileImageUrl != null ? FileImage(File(user.profileImageUrl!)) : null, child: user.profileImageUrl == null ? const Icon(Icons.person, size: 60) : null),
+                  IconButton(icon: const Icon(Icons.camera_alt), onPressed: () async {
+                    final img = await ImagePicker().pickImage(source: ImageSource.gallery);
+                    if (img != null) onUpdateImage(img.path);
+                  }),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text(user.name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              Text(user.id, style: const TextStyle(color: Colors.white38)),
+              const SizedBox(height: 40),
+              ListTile(
+                leading: const Icon(Icons.edit),
+                title: const Text('Edit Name'),
+                onTap: () {
+                  final c = TextEditingController(text: user.name);
+                  showDialog(context: context, builder: (context) => AlertDialog(
+                    title: const Text('Edit Name'),
+                    content: TextField(controller: c),
+                    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')), TextButton(onPressed: () { onUpdateName(c.text); Navigator.pop(context); }, child: const Text('Save'))],
+                  ));
+                },
+              ),
+            ],
           ),
-          const SizedBox(height: 24),
-          GestureDetector(
-            onTap: () => _showEditNameDialog(context),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  user.name,
-                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(width: 8),
-                const Icon(Icons.edit_outlined, size: 16, color: Colors.white24),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.link_rounded, size: 14, color: secondaryText),
-                const SizedBox(width: 6),
-                Text(
-                  user.id,
-                  style: TextStyle(color: secondaryText, fontSize: 13, fontWeight: FontWeight.w500, letterSpacing: 0.5),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 40),
-          _buildProfileOption(theme, Icons.notifications_none, 'Notifications'),
-          _buildProfileOption(theme, Icons.privacy_tip_outlined, 'Privacy'),
-          _buildProfileOption(theme, Icons.help_outline, 'Help & Support'),
-          _buildProfileOption(theme, Icons.logout, 'Log out', color: Colors.redAccent.withOpacity(0.7)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProfileOption(ThemeData theme, IconData icon, String title, {Color? color}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: Icon(icon, color: color ?? theme.colorScheme.onSurface.withOpacity(0.7)),
-        title: Text(title, style: TextStyle(color: color, fontWeight: FontWeight.w500)),
-        trailing: const Icon(Icons.chevron_right, size: 20, color: Colors.white24),
-        onTap: () {},
+        ),
       ),
     );
   }
