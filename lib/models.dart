@@ -1,3 +1,7 @@
+import 'dart:async';
+
+final StreamController<String> messageUpdates = StreamController<String>.broadcast();
+
 class UserProfile {
   String name;
   final String id;
