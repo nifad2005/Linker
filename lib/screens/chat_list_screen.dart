@@ -4,15 +4,22 @@ import '../models.dart';
 import 'message_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'my_id_screen.dart';
-import '../main.dart';
 
 class ChatListScreen extends StatelessWidget {
   final List<ChatUser> users;
   final Function(String) onAddConnection;
+  final Function(String, String) onSendMessage;
   final String myId;
   final bool isConnected;
 
-  const ChatListScreen({super.key, required this.users, required this.onAddConnection, required this.myId, required this.isConnected});
+  const ChatListScreen({
+    super.key, 
+    required this.users, 
+    required this.onAddConnection, 
+    required this.onSendMessage,
+    required this.myId, 
+    required this.isConnected
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -79,7 +86,7 @@ class ChatListScreen extends StatelessWidget {
                     : null,
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => MessagePage(
                     user: user,
-                    onMessageSent: (text) => context.findAncestorStateOfType<MainScreenState>()?.sendMessage(user.id, text),
+                    onMessageSent: (text) => onSendMessage(user.id, text),
                   ))),
                 );
               },
