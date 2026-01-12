@@ -8,6 +8,7 @@ import 'my_id_screen.dart';
 class ChatListScreen extends StatelessWidget {
   final List<ChatUser> users;
   final Function(String) onAddConnection;
+  final Function(String) onDeleteConnection;
   final Function(String, String) onSendMessage;
   final String myId;
   final bool isConnected;
@@ -16,6 +17,7 @@ class ChatListScreen extends StatelessWidget {
     super.key, 
     required this.users, 
     required this.onAddConnection, 
+    required this.onDeleteConnection,
     required this.onSendMessage,
     required this.myId, 
     required this.isConnected
@@ -52,10 +54,20 @@ class ChatListScreen extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.public, size: 64, color: Colors.white.withOpacity(0.1)),
-                  const SizedBox(height: 16),
+                  Icon(Icons.public, size: 80, color: Colors.white.withOpacity(0.05)),
+                  const SizedBox(height: 24),
                   const Text('No global links yet', style: TextStyle(color: Colors.white38, fontSize: 16)),
-                  TextButton(onPressed: () => _showAddMenu(context), child: const Text('Add Connection')),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => _showAddMenu(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white.withOpacity(0.05),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                    child: const Text('Connect with ID'),
+                  ),
                 ],
               ),
             )
@@ -65,29 +77,58 @@ class ChatListScreen extends StatelessWidget {
               itemBuilder: (context, index) {
                 final user = users[index];
                 final lastMsg = user.messages.isNotEmpty ? user.messages.first : null;
-                return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                  leading: CircleAvatar(
-                    radius: 25,
-                    backgroundColor: Colors.white.withOpacity(0.05),
-                    child: Text(user.name.substring(0, 1).toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold)),
+                
+                return Dismissible(
+                  key: Key(user.id),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 20),
+                    color: Colors.red.withOpacity(0.1),
+                    child: const Icon(Icons.delete_outline, color: Colors.redAccent),
                   ),
-                  title: Text(user.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17)),
-                  subtitle: lastMsg != null 
-                    ? Text(
-                        lastMsg.text, 
-                        maxLines: 1, 
-                        overflow: TextOverflow.ellipsis, 
-                        style: TextStyle(color: lastMsg.isSystem ? Colors.blueAccent : Colors.white38)
-                      )
-                    : const Text('New connection', style: TextStyle(color: Colors.white38)),
-                  trailing: lastMsg != null 
-                    ? Text(DateFormat('HH:mm').format(lastMsg.timestamp), style: const TextStyle(fontSize: 12, color: Colors.white24))
-                    : null,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => MessagePage(
-                    user: user,
-                    onMessageSent: (text) => onSendMessage(user.id, text),
-                  ))),
+                  confirmDismiss: (dir) async {
+                    return await showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        backgroundColor: const Color(0xFF1E1E1E),
+                        title: const Text('Delete Connection'),
+                        content: Text('Are you sure you want to remove ${user.name}?'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, true), 
+                            child: const Text('Delete', style: TextStyle(color: Colors.redAccent))
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  onDismissed: (_) => onDeleteConnection(user.id),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                    leading: CircleAvatar(
+                      radius: 25,
+                      backgroundColor: Colors.white.withOpacity(0.05),
+                      child: Text(user.name.isNotEmpty ? user.name.substring(0, 1).toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                    title: Text(user.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17)),
+                    subtitle: lastMsg != null 
+                      ? Text(
+                          lastMsg.text, 
+                          maxLines: 1, 
+                          overflow: TextOverflow.ellipsis, 
+                          style: TextStyle(color: lastMsg.isSystem ? Colors.blueAccent : Colors.white38)
+                        )
+                      : const Text('New connection', style: TextStyle(color: Colors.white38)),
+                    trailing: lastMsg != null 
+                      ? Text(DateFormat('HH:mm').format(lastMsg.timestamp), style: const TextStyle(fontSize: 12, color: Colors.white24))
+                      : null,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => MessagePage(
+                      user: user,
+                      onMessageSent: (text) => onSendMessage(user.id, text),
+                    ))),
+                  ),
                 );
               },
             ),

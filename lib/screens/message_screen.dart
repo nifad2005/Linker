@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models.dart';
@@ -14,6 +15,29 @@ class MessagePage extends StatefulWidget {
 class _MessagePageState extends State<MessagePage> {
   final TextEditingController _ctrl = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  StreamSubscription? _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen for real-time updates for this specific user
+    _subscription = messageUpdates.stream.listen((peerId) {
+      if (peerId == widget.user.id) {
+        if (mounted) {
+          setState(() {});
+          _scrollToBottom();
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    _ctrl.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   void _sendMessage() {
     if (_ctrl.text.trim().isEmpty) return;

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models.dart';
 
@@ -45,8 +46,15 @@ class ProfileScreen extends StatelessWidget {
             _buildInfoCard(context, 'Name', user.name, Icons.edit_outlined, () => _showEditName(context)),
             const SizedBox(height: 16),
             _buildInfoCard(context, 'ID', user.id, Icons.copy_outlined, () {
-              // Copy to clipboard or just show snackbar
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ID copied to clipboard')));
+              Clipboard.setData(ClipboardData(text: user.id));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text('ID copied to clipboard'),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  backgroundColor: Colors.blueAccent,
+                )
+              );
             }),
             const SizedBox(height: 32),
           ],
@@ -89,7 +97,15 @@ class ProfileScreen extends StatelessWidget {
         backgroundColor: const Color(0xFF1E1E1E),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Edit Name'),
-        content: TextField(controller: ctrl, autofocus: true, decoration: const InputDecoration(hintText: 'Enter your name')),
+        content: TextField(
+          controller: ctrl, 
+          autofocus: true, 
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Enter your name',
+            hintStyle: TextStyle(color: Colors.white24),
+          ),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           TextButton(

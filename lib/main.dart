@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mqtt_client/mqtt_client.dart';
@@ -75,6 +76,8 @@ class MainScreenState extends State<MainScreen> {
     _client!.port = 1883;
     _client!.logging(on: false);
     _client!.keepAlivePeriod = 20;
+    _client!.autoReconnect = true;
+    
     _client!.onDisconnected = () {
       if (mounted) setState(() => _isConnected = false);
     };
@@ -103,9 +106,13 @@ class MainScreenState extends State<MainScreen> {
 
   void _handleIncomingMessage(String payload) {
     try {
-      final decoded = jsonDecode(payload);
+      final dynamic decoded = jsonDecode(payload);
+      if (decoded is! Map) return;
+
+      final String? senderId = decoded['senderId'];
+      if (senderId == null || senderId == _currentUser.id) return;
+
       final String type = decoded['type'] ?? 'MESSAGE';
-      final String senderId = decoded['senderId'];
       final String senderName = decoded['senderName'] ?? 'Peer-$senderId';
       final String text = decoded['text'] ?? '';
 
@@ -137,6 +144,7 @@ class MainScreenState extends State<MainScreen> {
             ));
           }
         });
+        messageUpdates.add(senderId);
         _saveData();
       }
     } catch (e) {
@@ -198,6 +206,13 @@ class MainScreenState extends State<MainScreen> {
     _saveData();
   }
 
+  void deleteConnection(String peerId) {
+    setState(() {
+      _users.removeWhere((u) => u.id == peerId);
+    });
+    _saveData();
+  }
+
   void _sendHandshake(String peerId, {bool isResponse = false}) {
     if (_client?.connectionStatus?.state != MqttConnectionState.connected) return;
 
@@ -236,6 +251,7 @@ class MainScreenState extends State<MainScreen> {
         _users[index].messages.insert(0, ChatMessage(text: text, isMe: true, timestamp: DateTime.now()));
       }
     });
+    messageUpdates.add(peerId);
     _saveData();
   }
 
@@ -248,6 +264,7 @@ class MainScreenState extends State<MainScreen> {
           ? ChatListScreen(
               users: _users, 
               onAddConnection: addNewConnection, 
+              onDeleteConnection: deleteConnection,
               onSendMessage: sendMessage,
               myId: _currentUser.id, 
               isConnected: _isConnected
