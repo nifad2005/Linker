@@ -16,8 +16,8 @@ class UserProfile {
   };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
-    name: json['name'],
-    id: json['id'],
+    name: json['name'] ?? 'Unknown',
+    id: json['id'] ?? '',
     profileImageUrl: json['profileImageUrl'],
   );
 }
@@ -46,9 +46,9 @@ class ChatMessage {
   };
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
-    text: json['text'],
-    isMe: json['isMe'],
-    timestamp: DateTime.parse(json['timestamp']),
+    text: json['text'] ?? '',
+    isMe: json['isMe'] ?? false,
+    timestamp: json['timestamp'] != null ? DateTime.parse(json['timestamp']) : DateTime.now(),
     isSystem: json['isSystem'] ?? false,
     isSeen: json['isSeen'] ?? false,
   );
@@ -60,24 +60,31 @@ class ChatUser {
   final List<ChatMessage> messages;
   bool isTyping;
   bool isOnline;
+  int unreadCount;
 
   ChatUser({
     required this.name,
     required this.id,
-    this.messages = const [],
+    List<ChatMessage>? messages,
     this.isTyping = false,
     this.isOnline = false,
-  });
+    int? unreadCount,
+  }) : this.messages = messages ?? [],
+       this.unreadCount = unreadCount ?? 0;
 
   Map<String, dynamic> toJson() => {
     'name': name,
     'id': id,
     'messages': messages.map((m) => m.toJson()).toList(),
+    'unreadCount': unreadCount,
   };
 
-  factory ChatUser.fromJson(Map<String, dynamic> json) => ChatUser(
-    name: json['name'],
-    id: json['id'],
-    messages: (json['messages'] as List?)?.map((m) => ChatMessage.fromJson(m)).toList() ?? [],
-  );
+  factory ChatUser.fromJson(Map<String, dynamic> json) {
+    return ChatUser(
+      name: json['name'] ?? 'Unknown',
+      id: json['id'] ?? '',
+      messages: (json['messages'] as List?)?.map((m) => ChatMessage.fromJson(m)).toList() ?? [],
+      unreadCount: json['unreadCount'] is int ? json['unreadCount'] : 0,
+    );
+  }
 }

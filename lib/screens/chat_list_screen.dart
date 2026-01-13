@@ -5,13 +5,14 @@ import 'message_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'my_id_screen.dart';
 
-class ChatListScreen extends StatelessWidget {
+class ChatListScreen extends StatefulWidget {
   final List<ChatUser> users;
   final Function(String) onAddConnection;
   final Function(String) onDeleteConnection;
   final Function(String, String) onSendMessage;
   final Function(String, bool) onSendTyping;
   final Function(String) onSendSeen;
+  final Function(String) onClearUnread;
   final String myId;
   final bool isConnected;
 
@@ -23,9 +24,45 @@ class ChatListScreen extends StatelessWidget {
     required this.onSendMessage,
     required this.onSendTyping,
     required this.onSendSeen,
+    required this.onClearUnread,
     required this.myId, 
     required this.isConnected
   });
+
+  @override
+  State<ChatListScreen> createState() => _ChatListScreenState();
+}
+
+class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProviderStateMixin {
+  late AnimationController _shimmerController;
+  late Animation<double> _shimmerAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _shimmerController = AnimationController(
+      duration: const Duration(seconds: 7),
+      vsync: this,
+    )..repeat();
+
+    // Subtle sweep animation followed by a long pause
+    _shimmerAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: -1.0, end: 2.0).chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 25, // Sweep happens in 25% of the time (~1.75s)
+      ),
+      TweenSequenceItem(
+        tween: ConstantTween<double>(2.0),
+        weight: 75, // Pause for the rest of the time
+      ),
+    ]).animate(_shimmerController);
+  }
+
+  @override
+  void dispose() {
+    _shimmerController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +77,7 @@ class ChatListScreen extends StatelessWidget {
               height: 8,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isConnected ? Colors.green : Colors.red,
+                color: widget.isConnected ? Colors.green : Colors.red,
               ),
             ),
           ],
@@ -53,7 +90,7 @@ class ChatListScreen extends StatelessWidget {
           const SizedBox(width: 8),
         ],
       ),
-      body: users.isEmpty
+      body: widget.users.isEmpty
           ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -77,10 +114,11 @@ class ChatListScreen extends StatelessWidget {
             )
           : ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: users.length,
+              itemCount: widget.users.length,
               itemBuilder: (context, index) {
-                final user = users[index];
+                final user = widget.users[index];
                 final lastMsg = user.messages.isNotEmpty ? user.messages.first : null;
+                final bool hasUnread = user.unreadCount > 0;
                 
                 return Dismissible(
                   key: Key(user.id),
@@ -108,52 +146,121 @@ class ChatListScreen extends StatelessWidget {
                       ),
                     );
                   },
-                  onDismissed: (_) => onDeleteConnection(user.id),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                    leading: Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: 25,
-                          backgroundColor: Colors.white.withOpacity(0.05),
-                          child: Text(user.name.isNotEmpty ? user.name.substring(0, 1).toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  onDismissed: (_) => widget.onDeleteConnection(user.id),
+                  child: AnimatedBuilder(
+                    animation: _shimmerAnimation,
+                    builder: (context, child) {
+                      return ShaderMask(
+                        blendMode: BlendMode.srcATop,
+                        shaderCallback: (bounds) {
+                          if (!hasUnread) {
+                            return const LinearGradient(colors: [Colors.transparent, Colors.transparent]).createShader(bounds);
+                          }
+                          return LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            stops: [
+                              _shimmerAnimation.value - 0.2,
+                              _shimmerAnimation.value,
+                              _shimmerAnimation.value + 0.2,
+                            ],
+                            colors: [
+                              Colors.white.withOpacity(0),
+                              Colors.white.withOpacity(0.05), // Subtle shimmer
+                              Colors.white.withOpacity(0),
+                            ],
+                          ).createShader(bounds);
+                        },
+                        child: child,
+                      );
+                    },
+                    child: Container(
+                      color: hasUnread ? Colors.blueAccent.withOpacity(0.02) : Colors.transparent,
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                        leading: Stack(
+                          children: [
+                            CircleAvatar(
+                              radius: 25,
+                              backgroundColor: Colors.white.withOpacity(0.05),
+                              child: Text(user.name.isNotEmpty ? user.name.substring(0, 1).toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                            if (user.isOnline)
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  width: 14,
+                                  height: 14,
+                                  decoration: BoxDecoration(
+                                    color: Colors.green,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: const Color(0xFF121212), width: 2),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                        if (user.isOnline)
-                          Positioned(
-                            right: 0,
-                            bottom: 0,
-                            child: Container(
-                              width: 14,
-                              height: 14,
-                              decoration: BoxDecoration(
-                                color: Colors.green,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: const Color(0xFF121212), width: 2),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                user.name, 
+                                style: TextStyle(
+                                  fontWeight: hasUnread ? FontWeight.bold : FontWeight.w600, 
+                                  fontSize: 17,
+                                  color: hasUnread ? Colors.white : Colors.white.withOpacity(0.9)
+                                )
                               ),
                             ),
-                          ),
-                      ],
+                            if (hasUnread)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.blueAccent,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${user.unreadCount}', 
+                                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)
+                                ),
+                              ),
+                          ],
+                        ),
+                        subtitle: user.isTyping 
+                          ? const Text('typing...', style: TextStyle(color: Colors.green, fontStyle: FontStyle.italic))
+                          : lastMsg != null 
+                            ? Text(
+                                lastMsg.text, 
+                                maxLines: 1, 
+                                overflow: TextOverflow.ellipsis, 
+                                style: TextStyle(
+                                  color: hasUnread ? Colors.white.withOpacity(0.7) : (lastMsg.isSystem ? Colors.blueAccent : Colors.white38),
+                                  fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal
+                                )
+                              )
+                            : const Text('New connection', style: TextStyle(color: Colors.white38)),
+                        trailing: lastMsg != null 
+                          ? Text(
+                              DateFormat('HH:mm').format(lastMsg.timestamp), 
+                              style: TextStyle(
+                                fontSize: 12, 
+                                color: hasUnread ? Colors.blueAccent : Colors.white24,
+                                fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal
+                              )
+                            )
+                          : null,
+                        onTap: () {
+                          widget.onClearUnread(user.id);
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => MessagePage(
+                            user: user,
+                            onMessageSent: (text) => widget.onSendMessage(user.id, text),
+                            onSendTyping: (isTyping) => widget.onSendTyping(user.id, isTyping),
+                            onSendSeen: () => widget.onSendSeen(user.id),
+                          )));
+                        },
+                      ),
                     ),
-                    title: Text(user.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17)),
-                    subtitle: user.isTyping 
-                      ? const Text('typing...', style: TextStyle(color: Colors.green, fontStyle: FontStyle.italic))
-                      : lastMsg != null 
-                        ? Text(
-                            lastMsg.text, 
-                            maxLines: 1, 
-                            overflow: TextOverflow.ellipsis, 
-                            style: TextStyle(color: lastMsg.isSystem ? Colors.blueAccent : Colors.white38)
-                          )
-                        : const Text('New connection', style: TextStyle(color: Colors.white38)),
-                    trailing: lastMsg != null 
-                      ? Text(DateFormat('HH:mm').format(lastMsg.timestamp), style: const TextStyle(fontSize: 12, color: Colors.white24))
-                      : null,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => MessagePage(
-                      user: user,
-                      onMessageSent: (text) => onSendMessage(user.id, text),
-                      onSendTyping: (isTyping) => onSendTyping(user.id, isTyping),
-                      onSendSeen: () => onSendSeen(user.id),
-                    ))),
                   ),
                 );
               },
@@ -178,7 +285,7 @@ class ChatListScreen extends StatelessWidget {
               title: const Text('Scan QR Code'),
               onTap: () {
                 Navigator.pop(sheetContext);
-                Navigator.push(context, MaterialPageRoute(builder: (context) => QRScannerScreen(onScan: onAddConnection)));
+                Navigator.push(context, MaterialPageRoute(builder: (context) => QRScannerScreen(onScan: widget.onAddConnection)));
               },
             ),
             ListTile(
@@ -186,7 +293,7 @@ class ChatListScreen extends StatelessWidget {
               title: const Text('My Global ID'),
               onTap: () {
                 Navigator.pop(sheetContext);
-                Navigator.push(context, MaterialPageRoute(builder: (context) => MyIdPage(myId: myId)));
+                Navigator.push(context, MaterialPageRoute(builder: (context) => MyIdPage(myId: widget.myId)));
               },
             ),
             const SizedBox(height: 16),

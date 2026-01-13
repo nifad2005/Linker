@@ -138,12 +138,16 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _client!.autoReconnect = true;
     
     _client!.onDisconnected = () {
-      if (mounted) setState(() => _isConnected = false);
+      if (mounted) {
+        Future.microtask(() => setState(() => _isConnected = false));
+      }
     };
     _client!.onConnected = () {
       if (mounted) {
-        setState(() => _isConnected = true);
-        _broadcastStatus(true);
+        Future.microtask(() {
+          setState(() => _isConnected = true);
+          _broadcastStatus(true);
+        });
       }
     };
     
@@ -208,51 +212,55 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final String text = decoded['text'] ?? '';
 
       if (mounted) {
-        setState(() {
-          int index = _users.indexWhere((u) => u.id == senderId);
-          if (index == -1) {
-            _users.insert(0, ChatUser(name: senderName, id: senderId, messages: []));
-            index = 0;
-            _client?.subscribe('linker/status/$senderId', MqttQos.atLeastOnce);
-            if (type == 'CONNECT') {
-               _sendHandshake(senderId, isResponse: true);
+        Future.microtask(() {
+          if (!mounted) return;
+          setState(() {
+            int index = _users.indexWhere((u) => u.id == senderId);
+            if (index == -1) {
+              _users.insert(0, ChatUser(name: senderName, id: senderId, messages: []));
+              index = 0;
+              _client?.subscribe('linker/status/$senderId', MqttQos.atLeastOnce);
+              if (type == 'CONNECT') {
+                 _sendHandshake(senderId, isResponse: true);
+              }
+            } else {
+              _users[index].name = senderName;
             }
-          } else {
-            _users[index].name = senderName;
-          }
 
-          if (type == 'STATUS') {
-            _users[index].isOnline = decoded['online'] ?? false;
-          } else if (type == 'TYPING') {
-            _users[index].isTyping = decoded['isTyping'] ?? false;
-          } else if (type == 'SEEN') {
-            for (var msg in _users[index].messages) {
-              if (msg.isMe) msg.isSeen = true;
-            }
-          } else if (type == 'CONNECT') {
-            _users[index].messages.insert(0, ChatMessage(
-              text: 'Connection established with $senderName',
-              isMe: false,
-              timestamp: DateTime.now(),
-              isSystem: true,
-            ));
-            _broadcastStatus(true);
-          } else if (type == 'MESSAGE') {
-            _users[index].isTyping = false;
-            _users[index].messages.insert(0, ChatMessage(
-              text: text,
-              isMe: false,
-              timestamp: DateTime.now(),
-            ));
+            if (type == 'STATUS') {
+              _users[index].isOnline = decoded['online'] ?? false;
+            } else if (type == 'TYPING') {
+              _users[index].isTyping = decoded['isTyping'] ?? false;
+            } else if (type == 'SEEN') {
+              for (var msg in _users[index].messages) {
+                if (msg.isMe) msg.isSeen = true;
+              }
+            } else if (type == 'CONNECT') {
+              _users[index].messages.insert(0, ChatMessage(
+                text: 'Connection established with $senderName',
+                isMe: false,
+                timestamp: DateTime.now(),
+                isSystem: true,
+              ));
+              _broadcastStatus(true);
+            } else if (type == 'MESSAGE') {
+              _users[index].isTyping = false;
+              _users[index].messages.insert(0, ChatMessage(
+                text: text,
+                isMe: false,
+                timestamp: DateTime.now(),
+              ));
+              _users[index].unreadCount++;
 
-            // Show notification if app is in background
-            if (_appState != AppLifecycleState.resumed) {
-              _showNotification(senderName, text);
+              // Show notification if app is in background
+              if (_appState != AppLifecycleState.resumed) {
+                _showNotification(senderName, text);
+              }
             }
-          }
+          });
+          messageUpdates.add(senderId);
+          _saveData();
         });
-        messageUpdates.add(senderId);
-        _saveData();
       }
     } catch (e) {
       debugPrint('Error handling message: $e');
@@ -271,14 +279,21 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final connectionsJson = prefs.getString('connections');
       if (connectionsJson != null) {
         final List decoded = jsonDecode(connectionsJson);
-        setState(() {
-           _users = decoded.map((u) => ChatUser.fromJson(u)).toList();
-        });
+        final List<ChatUser> loadedUsers = decoded.map((u) => ChatUser.fromJson(u)).toList();
+        if (mounted) {
+          Future.microtask(() {
+            setState(() {
+               _users = loadedUsers;
+            });
+          });
+        }
       }
     } catch (e) {
       debugPrint('Error loading data: $e');
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        Future.microtask(() => setState(() => _isLoading = false));
+      }
     }
   }
 
@@ -320,6 +335,20 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     });
     _client?.unsubscribe('linker/status/$peerId');
     _saveData();
+  }
+
+  void clearUnread(String peerId) {
+    if (mounted) {
+      Future.microtask(() {
+        setState(() {
+          int index = _users.indexWhere((u) => u.id == peerId);
+          if (index != -1) {
+            _users[index].unreadCount = 0;
+          }
+        });
+        _saveData();
+      });
+    }
   }
 
   void _sendHandshake(String peerId, {bool isResponse = false}) {
@@ -385,6 +414,9 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final builder = MqttClientPayloadBuilder();
     builder.addString(payload);
     _client!.publishMessage('linker/$peerId', MqttQos.atLeastOnce, builder.payload!);
+    
+    // Also clear locally
+    clearUnread(peerId);
   }
 
   @override
@@ -400,6 +432,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               onSendMessage: sendMessage,
               onSendTyping: sendTypingStatus,
               onSendSeen: sendSeenStatus,
+              onClearUnread: clearUnread,
               myId: _currentUser.id, 
               isConnected: _isConnected
             )
