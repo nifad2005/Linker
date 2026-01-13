@@ -1,123 +1,104 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
 import '../models.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   final UserProfile user;
   final Function(String) onUpdateName;
-  final Function(String) onUpdateImage;
 
-  const ProfileScreen({super.key, required this.user, required this.onUpdateName, required this.onUpdateImage});
+  const ProfileScreen({
+    super.key, 
+    required this.user, 
+    required this.onUpdateName,
+  });
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  late TextEditingController _nameController;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.user.name);
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile', style: TextStyle(fontWeight: FontWeight.bold))),
+      appBar: AppBar(
+        title: const Text('My Profile', style: TextStyle(fontWeight: FontWeight.bold)),
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
             const SizedBox(height: 20),
-            Stack(
-              alignment: Alignment.bottomRight,
-              children: [
-                CircleAvatar(
-                  radius: 64,
-                  backgroundColor: Colors.white.withOpacity(0.05),
-                  backgroundImage: user.profileImageUrl != null ? FileImage(File(user.profileImageUrl!)) : null,
-                  child: user.profileImageUrl == null ? const Icon(Icons.person, size: 64, color: Colors.white12) : null,
-                ),
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: Colors.white,
-                  child: IconButton(
-                    icon: const Icon(Icons.camera_alt, size: 20, color: Colors.black),
-                    onPressed: () async {
-                      final img = await ImagePicker().pickImage(source: ImageSource.gallery);
-                      if (img != null) onUpdateImage(img.path);
-                    },
-                  ),
-                ),
-              ],
+            CircleAvatar(
+              radius: 60,
+              backgroundColor: Colors.white.withAlpha(13),
+              child: Text(
+                widget.user.name.isNotEmpty ? widget.user.name.substring(0, 1).toUpperCase() : '?',
+                style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
             ),
             const SizedBox(height: 32),
-            _buildInfoCard(context, 'Name', user.name, Icons.edit_outlined, () => _showEditName(context)),
-            const SizedBox(height: 16),
-            _buildInfoCard(context, 'ID', user.id, Icons.copy_outlined, () {
-              Clipboard.setData(ClipboardData(text: user.id));
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('ID copied to clipboard'),
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  backgroundColor: Colors.blueAccent,
-                )
-              );
-            }),
-            const SizedBox(height: 32),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoCard(BuildContext context, String label, String value, IconData icon, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16)),
-        child: Row(
-          children: [
-            Expanded(
+            TextField(
+              controller: _nameController,
+              decoration: InputDecoration(
+                labelText: 'Global Name',
+                hintText: 'Enter your name',
+                prefixIcon: const Icon(Icons.person_outline),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                filled: true,
+                fillColor: Colors.white.withAlpha(5),
+              ),
+              onChanged: widget.onUpdateName,
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(5),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white10),
+              ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(color: Colors.white38, fontSize: 13)),
-                  const SizedBox(height: 4),
-                  Text(value, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                  Row(
+                    children: [
+                      const Icon(Icons.fingerprint, color: Colors.blueAccent),
+                      const SizedBox(width: 12),
+                      const Text('Global ID', style: TextStyle(color: Colors.white38)),
+                      const Spacer(),
+                      Text(widget.user.id, style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                    ],
+                  ),
+                  const Divider(height: 32, color: Colors.white10),
+                  const Row(
+                    children: [
+                      Icon(Icons.security, color: Colors.green),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Your ID is public. Share it with friends to connect instantly.',
+                          style: TextStyle(fontSize: 12, color: Colors.white38),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
-            Icon(icon, size: 20, color: Colors.white38),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showEditName(BuildContext context) {
-    final ctrl = TextEditingController(text: user.name);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Edit Name'),
-        content: TextField(
-          controller: ctrl, 
-          autofocus: true, 
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'Enter your name',
-            hintStyle: TextStyle(color: Colors.white24),
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              if (ctrl.text.trim().isNotEmpty) {
-                onUpdateName(ctrl.text.trim());
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
   }

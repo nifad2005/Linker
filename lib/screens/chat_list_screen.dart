@@ -13,6 +13,8 @@ class ChatListScreen extends StatefulWidget {
   final Function(String, bool) onSendTyping;
   final Function(String) onSendSeen;
   final Function(String) onClearUnread;
+  final Function(String, String, {bool forEveryone}) onDeleteMessage;
+  final Function(String, String, String) onReactToMessage;
   final String myId;
   final bool isConnected;
 
@@ -25,6 +27,8 @@ class ChatListScreen extends StatefulWidget {
     required this.onSendTyping,
     required this.onSendSeen,
     required this.onClearUnread,
+    required this.onDeleteMessage,
+    required this.onReactToMessage,
     required this.myId, 
     required this.isConnected
   });
@@ -45,15 +49,14 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
       vsync: this,
     )..repeat();
 
-    // Subtle sweep animation followed by a long pause
     _shimmerAnimation = TweenSequence<double>([
       TweenSequenceItem(
         tween: Tween<double>(begin: -1.0, end: 2.0).chain(CurveTween(curve: Curves.easeInOut)),
-        weight: 25, // Sweep happens in 25% of the time (~1.75s)
+        weight: 25,
       ),
       TweenSequenceItem(
         tween: ConstantTween<double>(2.0),
-        weight: 75, // Pause for the rest of the time
+        weight: 75,
       ),
     ]).animate(_shimmerController);
   }
@@ -95,14 +98,14 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.public, size: 80, color: Colors.white.withOpacity(0.05)),
+                  Icon(Icons.public, size: 80, color: Colors.white.withAlpha(13)),
                   const SizedBox(height: 24),
                   const Text('No global links yet', style: TextStyle(color: Colors.white38, fontSize: 16)),
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: () => _showAddMenu(context),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(0.05),
+                      backgroundColor: Colors.white.withAlpha(13),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -126,7 +129,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                   background: Container(
                     alignment: Alignment.centerRight,
                     padding: const EdgeInsets.only(right: 20),
-                    color: Colors.red.withOpacity(0.1),
+                    color: Colors.red.withAlpha(25),
                     child: const Icon(Icons.delete_outline, color: Colors.redAccent),
                   ),
                   confirmDismiss: (dir) async {
@@ -153,9 +156,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                       return ShaderMask(
                         blendMode: BlendMode.srcATop,
                         shaderCallback: (bounds) {
-                          if (!hasUnread) {
-                            return const LinearGradient(colors: [Colors.transparent, Colors.transparent]).createShader(bounds);
-                          }
+                          if (!hasUnread) return const LinearGradient(colors: [Colors.transparent, Colors.transparent]).createShader(bounds);
                           return LinearGradient(
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
@@ -165,9 +166,9 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                               _shimmerAnimation.value + 0.2,
                             ],
                             colors: [
-                              Colors.white.withOpacity(0),
-                              Colors.white.withOpacity(0.05), // Subtle shimmer
-                              Colors.white.withOpacity(0),
+                              Colors.white.withAlpha(0),
+                              Colors.white.withAlpha(13),
+                              Colors.white.withAlpha(0),
                             ],
                           ).createShader(bounds);
                         },
@@ -175,15 +176,16 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                       );
                     },
                     child: Container(
-                      color: hasUnread ? Colors.blueAccent.withOpacity(0.02) : Colors.transparent,
+                      color: hasUnread ? Colors.blueAccent.withAlpha(5) : Colors.transparent,
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
                         leading: Stack(
                           children: [
                             CircleAvatar(
                               radius: 25,
-                              backgroundColor: Colors.white.withOpacity(0.05),
-                              child: Text(user.name.isNotEmpty ? user.name.substring(0, 1).toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold)),
+                              backgroundColor: Colors.white.withAlpha(13),
+                              child: Text(user.name.isNotEmpty ? user.name.substring(0, 1).toUpperCase() : '?', 
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white70)),
                             ),
                             if (user.isOnline)
                               Positioned(
@@ -209,7 +211,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                                 style: TextStyle(
                                   fontWeight: hasUnread ? FontWeight.bold : FontWeight.w600, 
                                   fontSize: 17,
-                                  color: hasUnread ? Colors.white : Colors.white.withOpacity(0.9)
+                                  color: hasUnread ? Colors.white : Colors.white.withAlpha(230)
                                 )
                               ),
                             ),
@@ -227,19 +229,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                               ),
                           ],
                         ),
-                        subtitle: user.isTyping 
-                          ? const Text('typing...', style: TextStyle(color: Colors.green, fontStyle: FontStyle.italic))
-                          : lastMsg != null 
-                            ? Text(
-                                lastMsg.text, 
-                                maxLines: 1, 
-                                overflow: TextOverflow.ellipsis, 
-                                style: TextStyle(
-                                  color: hasUnread ? Colors.white.withOpacity(0.7) : (lastMsg.isSystem ? Colors.blueAccent : Colors.white38),
-                                  fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal
-                                )
-                              )
-                            : const Text('New connection', style: TextStyle(color: Colors.white38)),
+                        subtitle: _buildSubtitle(user, lastMsg, hasUnread),
                         trailing: lastMsg != null 
                           ? Text(
                               DateFormat('HH:mm').format(lastMsg.timestamp), 
@@ -257,6 +247,9 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                             onMessageSent: (text) => widget.onSendMessage(user.id, text),
                             onSendTyping: (isTyping) => widget.onSendTyping(user.id, isTyping),
                             onSendSeen: () => widget.onSendSeen(user.id),
+                            onDeleteMessage: (msgId, {bool forEveryone = false}) => widget.onDeleteMessage(user.id, msgId, forEveryone: forEveryone),
+                            onReactToMessage: (msgId, emoji) => widget.onReactToMessage(user.id, msgId, emoji),
+                            myId: widget.myId,
                           )));
                         },
                       ),
@@ -265,6 +258,41 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                 );
               },
             ),
+    );
+  }
+
+  Widget _buildSubtitle(ChatUser user, ChatMessage? lastMsg, bool hasUnread) {
+    if (user.isTyping) {
+      return const Text('typing...', style: TextStyle(color: Colors.green, fontStyle: FontStyle.italic));
+    }
+    
+    if (lastMsg == null) {
+      return const Text('New connection', style: TextStyle(color: Colors.white38));
+    }
+
+    String text = lastMsg.isDeleted ? 'Message deleted' : lastMsg.text;
+    bool isReacted = lastMsg.reactions.isNotEmpty;
+
+    return Row(
+      children: [
+        if (isReacted && !lastMsg.isDeleted)
+           Padding(
+             padding: const EdgeInsets.only(right: 4),
+             child: Text(lastMsg.reactions.keys.first, style: const TextStyle(fontSize: 12)),
+           ),
+        Expanded(
+          child: Text(
+            text, 
+            maxLines: 1, 
+            overflow: TextOverflow.ellipsis, 
+            style: TextStyle(
+              color: hasUnread ? Colors.white.withAlpha(180) : (lastMsg.isSystem || lastMsg.isDeleted ? Colors.blueAccent : Colors.white38),
+              fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
+              fontStyle: lastMsg.isDeleted ? FontStyle.italic : FontStyle.normal,
+            )
+          ),
+        ),
+      ],
     );
   }
 

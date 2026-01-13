@@ -96,7 +96,6 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     const initSettings = InitializationSettings(android: androidInit);
     await _notifications.initialize(initSettings);
 
-    // Request permission for Android 13+
     await _notifications
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
@@ -123,7 +122,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
     const details = NotificationDetails(android: androidDetails);
     await _notifications.show(
-      DateTime.now().millisecond, // Unique ID for each notification
+      DateTime.now().millisecond,
       title, 
       body, 
       details
@@ -196,7 +195,6 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'senderId': _currentUser.id,
       'online': online,
       'senderName': _currentUser.name,
-      'profileImageUrl': _currentUser.profileImageUrl,
     });
     final builder = MqttClientPayloadBuilder();
     builder.addString(payload);
@@ -214,8 +212,8 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
       final String type = decoded['type'] ?? 'MESSAGE';
       final String senderName = decoded['senderName'] ?? 'Peer-$senderId';
-      final String? profileImageUrl = decoded['profileImageUrl'];
       final String text = decoded['text'] ?? '';
+      final String? messageId = decoded['messageId'];
 
       if (mounted) {
         Future.microtask(() {
@@ -226,7 +224,6 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               _users.insert(0, ChatUser(
                 name: senderName, 
                 id: senderId, 
-                profileImageUrl: profileImageUrl,
                 messages: []
               ));
               index = 0;
@@ -236,23 +233,39 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               }
             } else {
               _users[index].name = senderName;
-              if (profileImageUrl != null) {
-                _users[index].profileImageUrl = profileImageUrl;
-              }
             }
 
             if (type == 'STATUS') {
               _users[index].isOnline = decoded['online'] ?? false;
               _users[index].name = decoded['senderName'] ?? _users[index].name;
-              _users[index].profileImageUrl = decoded['profileImageUrl'] ?? _users[index].profileImageUrl;
             } else if (type == 'TYPING') {
               _users[index].isTyping = decoded['isTyping'] ?? false;
             } else if (type == 'SEEN') {
               for (var msg in _users[index].messages) {
                 if (msg.isMe) msg.isSeen = true;
               }
+            } else if (type == 'DELETE') {
+              final msgIdx = _users[index].messages.indexWhere((m) => m.id == messageId);
+              if (msgIdx != -1) {
+                _users[index].messages[msgIdx].text = 'This message was deleted';
+                _users[index].messages[msgIdx].isDeleted = true;
+              }
+            } else if (type == 'REACT') {
+              final String emoji = decoded['emoji'];
+              final msgIdx = _users[index].messages.indexWhere((m) => m.id == messageId);
+              if (msgIdx != -1) {
+                final reactions = _users[index].messages[msgIdx].reactions;
+                reactions[emoji] = reactions[emoji] ?? [];
+                if (!reactions[emoji]!.contains(senderId)) {
+                  reactions[emoji]!.add(senderId);
+                } else {
+                  reactions[emoji]!.remove(senderId);
+                  if (reactions[emoji]!.isEmpty) reactions.remove(emoji);
+                }
+              }
             } else if (type == 'CONNECT') {
               _users[index].messages.insert(0, ChatMessage(
+                id: const Uuid().v4(),
                 text: 'Connection established with $senderName',
                 isMe: false,
                 timestamp: DateTime.now(),
@@ -262,13 +275,13 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             } else if (type == 'MESSAGE') {
               _users[index].isTyping = false;
               _users[index].messages.insert(0, ChatMessage(
+                id: messageId ?? const Uuid().v4(),
                 text: text,
                 isMe: false,
                 timestamp: DateTime.now(),
               ));
               _users[index].unreadCount++;
 
-              // Show notification if app is in background
               if (_appState != AppLifecycleState.resumed) {
                 _showNotification(senderName, text);
               }
@@ -279,7 +292,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         });
       }
     } catch (e) {
-      debugPrint('Error handling message: $e Payload: "$payload"');
+      debugPrint('Error handling message: $e');
     }
   }
 
@@ -335,7 +348,13 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         name: 'Connecting...',
         id: peerId,
         messages: [
-          ChatMessage(text: 'Requesting connection...', isMe: true, timestamp: DateTime.now(), isSystem: true)
+          ChatMessage(
+            id: const Uuid().v4(),
+            text: 'Requesting connection...', 
+            isMe: true, 
+            timestamp: DateTime.now(), 
+            isSystem: true
+          )
         ],
       ));
     });
@@ -374,7 +393,6 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'type': 'CONNECT',
       'senderId': _currentUser.id,
       'senderName': _currentUser.name,
-      'profileImageUrl': _currentUser.profileImageUrl,
       'text': isResponse ? 'Accepted connection' : 'Requested connection',
     });
 
@@ -389,11 +407,12 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
        return;
     }
 
+    final String messageId = const Uuid().v4();
     final payload = jsonEncode({
       'type': 'MESSAGE',
+      'messageId': messageId,
       'senderId': _currentUser.id,
       'senderName': _currentUser.name,
-      'profileImageUrl': _currentUser.profileImageUrl,
       'text': text,
     });
 
@@ -404,7 +423,75 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     setState(() {
       int index = _users.indexWhere((u) => u.id == peerId);
       if (index != -1) {
-        _users[index].messages.insert(0, ChatMessage(text: text, isMe: true, timestamp: DateTime.now()));
+        _users[index].messages.insert(0, ChatMessage(
+          id: messageId,
+          text: text, 
+          isMe: true, 
+          timestamp: DateTime.now()
+        ));
+      }
+    });
+    messageUpdates.add(peerId);
+    _saveData();
+  }
+
+  void deleteMessage(String peerId, String messageId, {bool forEveryone = false}) {
+    if (forEveryone) {
+      if (_client?.connectionStatus?.state != MqttConnectionState.connected) return;
+      final payload = jsonEncode({
+        'type': 'DELETE',
+        'messageId': messageId,
+        'senderId': _currentUser.id,
+      });
+      final builder = MqttClientPayloadBuilder();
+      builder.addString(payload);
+      _client!.publishMessage('linker/$peerId', MqttQos.atLeastOnce, builder.payload!);
+    }
+
+    setState(() {
+      int uIdx = _users.indexWhere((u) => u.id == peerId);
+      if (uIdx != -1) {
+        int mIdx = _users[uIdx].messages.indexWhere((m) => m.id == messageId);
+        if (mIdx != -1) {
+          if (forEveryone) {
+            _users[uIdx].messages[mIdx].text = 'This message was deleted';
+            _users[uIdx].messages[mIdx].isDeleted = true;
+          } else {
+            _users[uIdx].messages.removeAt(mIdx);
+          }
+        }
+      }
+    });
+    messageUpdates.add(peerId);
+    _saveData();
+  }
+
+  void reactToMessage(String peerId, String messageId, String emoji) {
+    if (_client?.connectionStatus?.state != MqttConnectionState.connected) return;
+    final payload = jsonEncode({
+      'type': 'REACT',
+      'messageId': messageId,
+      'senderId': _currentUser.id,
+      'emoji': emoji,
+    });
+    final builder = MqttClientPayloadBuilder();
+    builder.addString(payload);
+    _client!.publishMessage('linker/$peerId', MqttQos.atLeastOnce, builder.payload!);
+
+    setState(() {
+      int uIdx = _users.indexWhere((u) => u.id == peerId);
+      if (uIdx != -1) {
+        int mIdx = _users[uIdx].messages.indexWhere((m) => m.id == messageId);
+        if (mIdx != -1) {
+          final reactions = _users[uIdx].messages[mIdx].reactions;
+          reactions[emoji] = reactions[emoji] ?? [];
+          if (!reactions[emoji]!.contains(_currentUser.id)) {
+            reactions[emoji]!.add(_currentUser.id);
+          } else {
+            reactions[emoji]!.remove(_currentUser.id);
+            if (reactions[emoji]!.isEmpty) reactions.remove(emoji);
+          }
+        }
       }
     });
     messageUpdates.add(peerId);
@@ -433,7 +520,6 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     builder.addString(payload);
     _client!.publishMessage('linker/$peerId', MqttQos.atLeastOnce, builder.payload!);
     
-    // Also clear locally
     clearUnread(peerId);
   }
 
@@ -451,13 +537,14 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               onSendTyping: sendTypingStatus,
               onSendSeen: sendSeenStatus,
               onClearUnread: clearUnread,
+              onDeleteMessage: deleteMessage,
+              onReactToMessage: reactToMessage,
               myId: _currentUser.id, 
               isConnected: _isConnected
             )
           : ProfileScreen(
               user: _currentUser, 
               onUpdateName: (name) { setState(() => _currentUser.name = name); _saveData(); _broadcastStatus(true); },
-              onUpdateImage: (path) { setState(() => _currentUser.profileImageUrl = path); _saveData(); _broadcastStatus(true); },
             ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,

@@ -5,59 +5,69 @@ final StreamController<String> messageUpdates = StreamController<String>.broadca
 class UserProfile {
   String name;
   final String id;
-  String? profileImageUrl;
 
-  UserProfile({required this.name, required this.id, this.profileImageUrl});
+  UserProfile({required this.name, required this.id});
 
   Map<String, dynamic> toJson() => {
     'name': name,
     'id': id,
-    'profileImageUrl': profileImageUrl,
   };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
     name: json['name'] ?? 'Unknown',
     id: json['id'] ?? '',
-    profileImageUrl: json['profileImageUrl'],
   );
 }
 
 class ChatMessage {
-  final String text;
+  final String id;
+  String text;
   final bool isMe;
   final DateTime timestamp;
   final bool isSystem;
   bool isSeen;
+  bool isDeleted;
+  Map<String, List<String>> reactions; // emoji -> list of userIds
 
   ChatMessage({
+    required this.id,
     required this.text,
     required this.isMe,
     required this.timestamp,
     this.isSystem = false,
     this.isSeen = false,
-  });
+    this.isDeleted = false,
+    Map<String, List<String>>? reactions,
+  }) : this.reactions = reactions ?? {};
 
   Map<String, dynamic> toJson() => {
+    'id': id,
     'text': text,
     'isMe': isMe,
     'timestamp': timestamp.toIso8601String(),
     'isSystem': isSystem,
     'isSeen': isSeen,
+    'isDeleted': isDeleted,
+    'reactions': reactions,
   };
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
+    id: json['id'] ?? '',
     text: json['text'] ?? '',
     isMe: json['isMe'] ?? false,
     timestamp: json['timestamp'] != null ? DateTime.parse(json['timestamp']) : DateTime.now(),
     isSystem: json['isSystem'] ?? false,
     isSeen: json['isSeen'] ?? false,
+    isDeleted: json['isDeleted'] ?? false,
+    reactions: (json['reactions'] as Map<String, dynamic>?)?.map(
+      (k, v) => MapEntry(k, List<String>.from(v)),
+    ),
   );
 }
 
 class ChatUser {
   String name;
   final String id;
-  String? profileImageUrl;
   final List<ChatMessage> messages;
   bool isTyping;
   bool isOnline;
@@ -66,7 +76,6 @@ class ChatUser {
   ChatUser({
     required this.name,
     required this.id,
-    this.profileImageUrl,
     List<ChatMessage>? messages,
     this.isTyping = false,
     this.isOnline = false,
@@ -77,7 +86,6 @@ class ChatUser {
   Map<String, dynamic> toJson() => {
     'name': name,
     'id': id,
-    'profileImageUrl': profileImageUrl,
     'messages': messages.map((m) => m.toJson()).toList(),
     'unreadCount': unreadCount,
   };
@@ -86,7 +94,6 @@ class ChatUser {
     return ChatUser(
       name: json['name'] ?? 'Unknown',
       id: json['id'] ?? '',
-      profileImageUrl: json['profileImageUrl'],
       messages: (json['messages'] as List?)?.map((m) => ChatMessage.fromJson(m)).toList() ?? [],
       unreadCount: json['unreadCount'] is int ? json['unreadCount'] : 0,
     );
