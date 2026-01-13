@@ -3,10 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models.dart';
-
-class SendMessageIntent extends Intent {
-  const SendMessageIntent();
-}
+import 'message_input.dart';
 
 class MessagePage extends StatefulWidget {
   final ChatUser user;
@@ -33,12 +30,10 @@ class MessagePage extends StatefulWidget {
 }
 
 class _MessagePageState extends State<MessagePage> {
-  final TextEditingController _ctrl = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
   StreamSubscription? _subscription;
   Timer? _typingTimer;
-  bool _isTextEmpty = true;
 
   @override
   void initState() {
@@ -50,19 +45,6 @@ class _MessagePageState extends State<MessagePage> {
         setState(() {});
       }
     });
-    _ctrl.addListener(_onTextChanged);
-  }
-
-  void _onTextChanged() {
-    final bool isEmpty = _ctrl.text.trim().isEmpty;
-    if (isEmpty != _isTextEmpty) setState(() => _isTextEmpty = isEmpty);
-    if (_ctrl.text.isNotEmpty) {
-      widget.onSendTyping(true);
-      _typingTimer?.cancel();
-      _typingTimer = Timer(const Duration(seconds: 2), () => widget.onSendTyping(false));
-    } else {
-      widget.onSendTyping(false);
-    }
   }
 
   @override
@@ -70,19 +52,26 @@ class _MessagePageState extends State<MessagePage> {
     widget.onSendTyping(false);
     _typingTimer?.cancel();
     _subscription?.cancel();
-    _ctrl.dispose();
     _scrollController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
-  void _sendMessage() {
-    if (_ctrl.text.trim().isEmpty) return;
-    HapticFeedback.lightImpact();
-    widget.onMessageSent(_ctrl.text.trim());
-    _ctrl.clear();
-    _focusNode.requestFocus();
+  void _sendMessage(String text) {
+    widget.onMessageSent(text);
+    widget.onSendTyping(false);
     _scrollToBottom();
+    _focusNode.requestFocus();
+  }
+
+  void _onTypingChanged(bool isTyping) {
+    if (isTyping) {
+      widget.onSendTyping(true);
+      _typingTimer?.cancel();
+      _typingTimer = Timer(const Duration(seconds: 2), () => widget.onSendTyping(false));
+    } else {
+      widget.onSendTyping(false);
+    }
   }
 
   void _scrollToBottom() {
@@ -123,7 +112,7 @@ class _MessagePageState extends State<MessagePage> {
                       duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: isSelected ? Colors.blueAccent.withOpacity(0.2) : Colors.transparent,
+                        color: isSelected ? Colors.greenAccent.withAlpha(50) : Colors.transparent,
                         shape: BoxShape.circle,
                       ),
                       child: Text(emoji, style: const TextStyle(fontSize: 24)),
@@ -133,32 +122,36 @@ class _MessagePageState extends State<MessagePage> {
               ),
             ),
             const Divider(color: Colors.white10, height: 24),
-            _buildActionItem(Icons.copy_rounded, 'Copy Text', () {
-              Clipboard.setData(ClipboardData(text: message.text));
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
-            }),
-            _buildActionItem(Icons.delete_outline_rounded, 'Delete for me', () {
-              widget.onDeleteMessage(message.id, forEveryone: false);
-              Navigator.pop(context);
-            }, color: Colors.redAccent),
-            if (message.isMe && !message.isDeleted)
-              _buildActionItem(Icons.delete_forever_rounded, 'Delete for everyone', () {
-                widget.onDeleteMessage(message.id, forEveryone: true);
+            ListTile(
+              leading: const Icon(Icons.copy_rounded, color: Colors.white70),
+              title: const Text('Copy Text', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: message.text));
                 Navigator.pop(context);
-              }, color: Colors.redAccent),
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+              title: const Text('Delete for me', style: TextStyle(color: Colors.redAccent)),
+              onTap: () {
+                widget.onDeleteMessage(message.id, forEveryone: false);
+                Navigator.pop(context);
+              },
+            ),
+            if (message.isMe && !message.isDeleted)
+              ListTile(
+                leading: const Icon(Icons.delete_forever_rounded, color: Colors.redAccent),
+                title: const Text('Delete for everyone', style: TextStyle(color: Colors.redAccent)),
+                onTap: () {
+                  widget.onDeleteMessage(message.id, forEveryone: true);
+                  Navigator.pop(context);
+                },
+              ),
             const SizedBox(height: 10),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildActionItem(IconData icon, String title, VoidCallback onTap, {Color? color}) {
-    return ListTile(
-      leading: Icon(icon, color: color ?? Colors.white70),
-      title: Text(title, style: TextStyle(color: color ?? Colors.white, fontSize: 16)),
-      onTap: onTap,
     );
   }
 
@@ -174,7 +167,7 @@ class _MessagePageState extends State<MessagePage> {
             const SizedBox(width: 4),
             CircleAvatar(
               radius: 18,
-              backgroundColor: Colors.white10,
+              backgroundColor: Colors.white.withAlpha(13),
               child: Text(widget.user.name.isNotEmpty ? widget.user.name.substring(0, 1).toUpperCase() : '?'),
             ),
             const SizedBox(width: 12),
@@ -184,7 +177,7 @@ class _MessagePageState extends State<MessagePage> {
                 children: [
                   Text(widget.user.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   Text(widget.user.isTyping ? 'typing...' : (widget.user.isOnline ? 'Online' : 'Offline'),
-                      style: TextStyle(fontSize: 11, color: widget.user.isTyping || widget.user.isOnline ? Colors.green : Colors.white38)),
+                      style: TextStyle(fontSize: 11, color: widget.user.isTyping || widget.user.isOnline ? Colors.greenAccent : Colors.white38)),
                 ],
               ),
             ),
@@ -206,7 +199,11 @@ class _MessagePageState extends State<MessagePage> {
               },
             ),
           ),
-          _buildInputSection(),
+          MessageInput(
+            onSendMessage: _sendMessage,
+            onTypingChanged: _onTypingChanged,
+            focusNode: _focusNode,
+          ),
         ],
       ),
     );
@@ -217,8 +214,8 @@ class _MessagePageState extends State<MessagePage> {
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 12),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
-        child: Text(m.text, style: const TextStyle(fontSize: 11, color: Colors.blueAccent)),
+        decoration: BoxDecoration(color: Colors.white.withAlpha(13), borderRadius: BorderRadius.circular(12)),
+        child: Text(m.text, style: const TextStyle(fontSize: 11, color: Colors.greenAccent)),
       ),
     );
   }
@@ -235,7 +232,7 @@ class _MessagePageState extends State<MessagePage> {
               constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: m.isDeleted ? Colors.white.withOpacity(0.05) : (m.isMe ? Colors.blueAccent.withOpacity(0.2) : const Color(0xFF1E1E1E)),
+                color: m.isDeleted ? Colors.white.withAlpha(13) : (m.isMe ? Colors.greenAccent.withAlpha(50) : const Color(0xFF1E1E1E)),
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(18),
                   topRight: const Radius.circular(18),
@@ -287,65 +284,13 @@ class _MessagePageState extends State<MessagePage> {
                   Text(DateFormat('HH:mm').format(m.timestamp), style: const TextStyle(fontSize: 10, color: Colors.white24)),
                   if (m.isMe) ...[
                     const SizedBox(width: 4),
-                    Icon(Icons.done_all, size: 14, color: m.isSeen ? Colors.blueAccent : Colors.white12),
+                    Icon(Icons.done_all, size: 14, color: m.isSeen ? Colors.greenAccent : Colors.white12),
                   ]
                 ],
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildInputSection() {
-    return Container(
-      padding: EdgeInsets.fromLTRB(12, 8, 12, MediaQuery.of(context).padding.bottom + 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF121212),
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05), width: 0.5)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Shortcuts(
-              shortcuts: {const SingleActivator(LogicalKeyboardKey.enter): const SendMessageIntent()},
-              child: Actions(
-                actions: {SendMessageIntent: CallbackAction<SendMessageIntent>(onInvoke: (_) => _sendMessage())},
-                child: TextField(
-                  controller: _ctrl,
-                  focusNode: _focusNode,
-                  maxLines: 5,
-                  minLines: 1,
-                  style: const TextStyle(fontSize: 15, color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: 'Type a message...',
-                    hintStyle: const TextStyle(color: Colors.white24),
-                    filled: true,
-                    fillColor: Colors.white.withOpacity(0.05),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: _isTextEmpty ? null : _sendMessage,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: _isTextEmpty ? Colors.white.withOpacity(0.05) : Colors.blueAccent,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
-            ),
-          ),
-        ],
       ),
     );
   }

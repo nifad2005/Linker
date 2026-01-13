@@ -176,7 +176,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                       );
                     },
                     child: Container(
-                      color: hasUnread ? Colors.blueAccent.withAlpha(5) : Colors.transparent,
+                      color: hasUnread ? Colors.greenAccent.withAlpha(5) : Colors.transparent,
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
                         leading: Stack(
@@ -219,12 +219,12 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: Colors.blueAccent,
+                                  color: Colors.greenAccent,
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Text(
                                   '${user.unreadCount}', 
-                                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)
+                                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black87)
                                 ),
                               ),
                           ],
@@ -235,7 +235,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                               DateFormat('HH:mm').format(lastMsg.timestamp), 
                               style: TextStyle(
                                 fontSize: 12, 
-                                color: hasUnread ? Colors.blueAccent : Colors.white24,
+                                color: hasUnread ? Colors.greenAccent : Colors.white24,
                                 fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal
                               )
                             )
@@ -286,7 +286,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
             maxLines: 1, 
             overflow: TextOverflow.ellipsis, 
             style: TextStyle(
-              color: hasUnread ? Colors.white.withAlpha(180) : (lastMsg.isSystem || lastMsg.isDeleted ? Colors.blueAccent : Colors.white38),
+              color: hasUnread ? Colors.white.withAlpha(180) : (lastMsg.isSystem || lastMsg.isDeleted ? Colors.greenAccent : Colors.white38),
               fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
               fontStyle: lastMsg.isDeleted ? FontStyle.italic : FontStyle.normal,
             )
@@ -309,7 +309,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
             Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(2))),
             const SizedBox(height: 16),
             ListTile(
-              leading: const Icon(Icons.qr_code_scanner),
+              leading: const Icon(Icons.qr_code_scanner, color: Colors.greenAccent),
               title: const Text('Scan QR Code'),
               onTap: () {
                 Navigator.pop(sheetContext);
@@ -317,7 +317,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
               },
             ),
             ListTile(
-              leading: const Icon(Icons.qr_code),
+              leading: const Icon(Icons.qr_code, color: Colors.greenAccent),
               title: const Text('My Global ID'),
               onTap: () {
                 Navigator.pop(sheetContext);

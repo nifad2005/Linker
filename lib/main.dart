@@ -28,7 +28,7 @@ class LinkerApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFF121212),
         colorScheme: const ColorScheme.dark(
           primary: Colors.white,
-          secondary: Colors.blueAccent,
+          secondary: Colors.greenAccent,
           surface: Color(0xFF1E1E1E),
         ),
         appBarTheme: const AppBarTheme(
