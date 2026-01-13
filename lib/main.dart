@@ -10,6 +10,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'models.dart';
 import 'screens/chat_list_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/message_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -54,6 +55,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   MqttServerClient? _client;
   bool _isConnected = false;
   AppLifecycleState _appState = AppLifecycleState.resumed;
+  ChatUser? _selectedUser;
   
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
 
@@ -367,6 +369,9 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void deleteConnection(String peerId) {
     setState(() {
       _users.removeWhere((u) => u.id == peerId);
+      if (_selectedUser?.id == peerId) {
+        _selectedUser = null;
+      }
     });
     _client?.unsubscribe('linker/status/$peerId');
     _saveData();
@@ -527,6 +532,113 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth > 900) {
+          return _buildDesktopLayout();
+        } else {
+          return _buildMobileLayout();
+        }
+      },
+    );
+  }
+
+  Widget _buildDesktopLayout() {
+    return Scaffold(
+      body: Row(
+        children: [
+          // Left sidebar (Nav + Chat List)
+          Container(
+            width: 350,
+            decoration: const BoxDecoration(
+              border: Border(right: BorderSide(color: Colors.white10, width: 0.5)),
+            ),
+            child: Column(
+              children: [
+                _buildSidebarHeader(),
+                Expanded(
+                  child: ChatListScreen(
+                    users: _users, 
+                    onAddConnection: addNewConnection, 
+                    onDeleteConnection: deleteConnection,
+                    onSendMessage: sendMessage,
+                    onSendTyping: sendTypingStatus,
+                    onSendSeen: sendSeenStatus,
+                    onClearUnread: clearUnread,
+                    onDeleteMessage: deleteMessage,
+                    onReactToMessage: reactToMessage,
+                    myId: _currentUser.id, 
+                    isConnected: _isConnected,
+                    selectedUser: _selectedUser,
+                    onUserSelected: (user) => setState(() => _selectedUser = user),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Main chat area
+          Expanded(
+            child: _selectedUser != null 
+                ? MessagePage(
+                    key: ValueKey(_selectedUser!.id),
+                    user: _selectedUser!,
+                    onMessageSent: (text) => sendMessage(_selectedUser!.id, text),
+                    onSendTyping: (isTyping) => sendTypingStatus(_selectedUser!.id, isTyping),
+                    onSendSeen: () => sendSeenStatus(_selectedUser!.id),
+                    onDeleteMessage: (msgId, {bool forEveryone = false}) => deleteMessage(_selectedUser!.id, msgId, forEveryone: forEveryone),
+                    onReactToMessage: (msgId, emoji) => reactToMessage(_selectedUser!.id, msgId, emoji),
+                    myId: _currentUser.id,
+                  )
+                : const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.chat_bubble_outline, size: 64, color: Colors.white10),
+                        SizedBox(height: 16),
+                        Text('Select a conversation to start messaging', style: TextStyle(color: Colors.white38)),
+                      ],
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSidebarHeader() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: Colors.white.withAlpha(13),
+            child: Text(_currentUser.name.substring(0, 1).toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_currentUser.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(_currentUser.id, style: const TextStyle(fontSize: 10, color: Colors.white38)),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, size: 20),
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => ProfileScreen(
+                user: _currentUser, 
+                onUpdateName: (name) { setState(() => _currentUser.name = name); _saveData(); _broadcastStatus(true); },
+              )));
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileLayout() {
     return Scaffold(
       body: _selectedIndex == 0 
           ? ChatListScreen(
@@ -549,7 +661,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: (index) => setState(() => _selectedIndex = index),
-        selectedItemColor: Colors.white,
+        selectedItemColor: Colors.greenAccent,
         unselectedItemColor: Colors.white38,
         backgroundColor: const Color(0xFF1E1E1E),
         items: const [

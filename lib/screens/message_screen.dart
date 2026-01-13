@@ -96,7 +96,6 @@ class _MessagePageState extends State<MessagePage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Reactions
             Container(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Row(
@@ -195,7 +194,11 @@ class _MessagePageState extends State<MessagePage> {
               itemBuilder: (context, index) {
                 final m = widget.user.messages[index];
                 if (m.isSystem) return _buildSystemMessage(m);
-                return _buildMessageBubble(m);
+                return AnimatedMessageBubble(
+                  key: ValueKey(m.id),
+                  message: m,
+                  onLongPress: () => _showActionMenu(m),
+                );
               },
             ),
           ),
@@ -219,77 +222,167 @@ class _MessagePageState extends State<MessagePage> {
       ),
     );
   }
+}
 
-  Widget _buildMessageBubble(ChatMessage m) {
-    return Align(
-      alignment: m.isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onLongPress: () => _showActionMenu(m),
-        child: Column(
-          crossAxisAlignment: m.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            Container(
-              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: m.isDeleted ? Colors.white.withAlpha(13) : (m.isMe ? Colors.greenAccent.withAlpha(50) : const Color(0xFF1E1E1E)),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(18),
-                  topRight: const Radius.circular(18),
-                  bottomLeft: Radius.circular(m.isMe ? 18 : 4),
-                  bottomRight: Radius.circular(m.isMe ? 4 : 18),
-                ),
-                border: m.isDeleted ? Border.all(color: Colors.white10) : null,
-              ),
-              child: Text(
-                m.text,
-                style: TextStyle(
-                  fontSize: 15,
-                  color: m.isDeleted ? Colors.white38 : Colors.white,
-                  fontStyle: m.isDeleted ? FontStyle.italic : FontStyle.normal,
-                ),
-              ),
-            ),
-            if (m.reactions.isNotEmpty)
-              Transform.translate(
-                offset: const Offset(0, -8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: m.reactions.entries.map((entry) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      margin: const EdgeInsets.only(right: 4),
+class AnimatedMessageBubble extends StatefulWidget {
+  final ChatMessage message;
+  final VoidCallback onLongPress;
+
+  const AnimatedMessageBubble({
+    super.key,
+    required this.message,
+    required this.onLongPress,
+  });
+
+  @override
+  State<AnimatedMessageBubble> createState() => _AnimatedMessageBubbleState();
+}
+
+class _AnimatedMessageBubbleState extends State<AnimatedMessageBubble> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+
+    _scaleAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutBack,
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.0, 0.4, curve: Curves.easeIn),
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0.0, 0.8), // Now comes from the bottom
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.fastLinearToSlowEaseIn,
+    ));
+
+    final age = DateTime.now().difference(widget.message.timestamp);
+    if (age.inSeconds < 2) {
+      _controller.forward();
+    } else {
+      _controller.value = 1.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final m = widget.message;
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: SlideTransition(
+        position: _slideAnimation,
+        child: ScaleTransition(
+          scale: _scaleAnimation,
+          alignment: m.isMe ? Alignment.bottomRight : Alignment.bottomLeft,
+          child: Align(
+            alignment: m.isMe ? Alignment.centerRight : Alignment.centerLeft,
+            child: GestureDetector(
+              onLongPress: widget.onLongPress,
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  crossAxisAlignment: m.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF2C2C2C),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white10, width: 0.5),
-                        boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4, offset: const Offset(0, 2))],
+                        color: m.isDeleted ? Colors.white.withAlpha(13) : (m.isMe ? Colors.greenAccent.withAlpha(50) : const Color(0xFF1E1E1E)),
+                        borderRadius: BorderRadius.only(
+                          topLeft: const Radius.circular(16),
+                          topRight: const Radius.circular(16),
+                          bottomLeft: Radius.circular(m.isMe ? 16 : 4),
+                          bottomRight: Radius.circular(m.isMe ? 4 : 16),
+                        ),
+                        border: m.isDeleted ? Border.all(color: Colors.white10) : null,
                       ),
-                      child: Row(
-                        children: [
-                          Text(entry.key, style: const TextStyle(fontSize: 12)),
-                          if (entry.value.length > 1)
-                            Text(' ${entry.value.length}', style: const TextStyle(fontSize: 10, color: Colors.white70)),
-                        ],
+                      child: IntrinsicWidth(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              m.text,
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: m.isDeleted ? Colors.white38 : Colors.white,
+                                fontStyle: m.isDeleted ? FontStyle.italic : FontStyle.normal,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Spacer(),
+                                Text(
+                                  DateFormat('HH:mm').format(m.timestamp),
+                                  style: const TextStyle(fontSize: 9, color: Colors.white24),
+                                ),
+                                if (m.isMe) ...[
+                                  const SizedBox(width: 4),
+                                  Icon(
+                                    Icons.done_all,
+                                    size: 12,
+                                    color: m.isSeen ? Colors.greenAccent : Colors.white12,
+                                  ),
+                                ]
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
-                    );
-                  }).toList(),
+                    ),
+                    if (m.reactions.isNotEmpty)
+                      Transform.translate(
+                        offset: const Offset(0, -4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: m.reactions.entries.map((entry) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              margin: const EdgeInsets.only(right: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF2C2C2C),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.white10, width: 0.5),
+                              ),
+                              child: Row(
+                                children: [
+                                  Text(entry.key, style: const TextStyle(fontSize: 12)),
+                                  if (entry.value.length > 1)
+                                    Text(' ${entry.value.length}', style: const TextStyle(fontSize: 10, color: Colors.white70)),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-            Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 12, left: 4, right: 4),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(DateFormat('HH:mm').format(m.timestamp), style: const TextStyle(fontSize: 10, color: Colors.white24)),
-                  if (m.isMe) ...[
-                    const SizedBox(width: 4),
-                    Icon(Icons.done_all, size: 14, color: m.isSeen ? Colors.greenAccent : Colors.white12),
-                  ]
-                ],
-              ),
             ),
-          ],
+          ),
         ),
       ),
     );

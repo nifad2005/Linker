@@ -17,6 +17,8 @@ class ChatListScreen extends StatefulWidget {
   final Function(String, String, String) onReactToMessage;
   final String myId;
   final bool isConnected;
+  final ChatUser? selectedUser;
+  final Function(ChatUser)? onUserSelected;
 
   const ChatListScreen({
     super.key, 
@@ -30,7 +32,9 @@ class ChatListScreen extends StatefulWidget {
     required this.onDeleteMessage,
     required this.onReactToMessage,
     required this.myId, 
-    required this.isConnected
+    required this.isConnected,
+    this.selectedUser,
+    this.onUserSelected,
   });
 
   @override
@@ -122,6 +126,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                 final user = widget.users[index];
                 final lastMsg = user.messages.isNotEmpty ? user.messages.first : null;
                 final bool hasUnread = user.unreadCount > 0;
+                final bool isSelected = widget.selectedUser?.id == user.id;
                 
                 return Dismissible(
                   key: Key(user.id),
@@ -176,8 +181,9 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                       );
                     },
                     child: Container(
-                      color: hasUnread ? Colors.greenAccent.withAlpha(5) : Colors.transparent,
+                      color: isSelected ? Colors.greenAccent.withAlpha(20) : (hasUnread ? Colors.greenAccent.withAlpha(5) : Colors.transparent),
                       child: ListTile(
+                        selected: isSelected,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
                         leading: Stack(
                           children: [
@@ -242,15 +248,19 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
                           : null,
                         onTap: () {
                           widget.onClearUnread(user.id);
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => MessagePage(
-                            user: user,
-                            onMessageSent: (text) => widget.onSendMessage(user.id, text),
-                            onSendTyping: (isTyping) => widget.onSendTyping(user.id, isTyping),
-                            onSendSeen: () => widget.onSendSeen(user.id),
-                            onDeleteMessage: (msgId, {bool forEveryone = false}) => widget.onDeleteMessage(user.id, msgId, forEveryone: forEveryone),
-                            onReactToMessage: (msgId, emoji) => widget.onReactToMessage(user.id, msgId, emoji),
-                            myId: widget.myId,
-                          )));
+                          if (widget.onUserSelected != null) {
+                            widget.onUserSelected!(user);
+                          } else {
+                            Navigator.push(context, MaterialPageRoute(builder: (context) => MessagePage(
+                              user: user,
+                              onMessageSent: (text) => widget.onSendMessage(user.id, text),
+                              onSendTyping: (isTyping) => widget.onSendTyping(user.id, isTyping),
+                              onSendSeen: () => widget.onSendSeen(user.id),
+                              onDeleteMessage: (msgId, {bool forEveryone = false}) => widget.onDeleteMessage(user.id, msgId, forEveryone: forEveryone),
+                              onReactToMessage: (msgId, emoji) => widget.onReactToMessage(user.id, msgId, emoji),
+                              myId: widget.myId,
+                            )));
+                          }
                         },
                       ),
                     ),

@@ -52,10 +52,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 32),
             TextField(
               controller: _nameController,
+              cursorColor: Colors.greenAccent,
               decoration: InputDecoration(
                 labelText: 'Global Name',
+                labelStyle: const TextStyle(color: Colors.white70),
                 hintText: 'Enter your name',
-                prefixIcon: const Icon(Icons.person_outline),
+                prefixIcon: const Icon(Icons.person_outline, color: Colors.greenAccent),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Colors.greenAccent),
+                ),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                 filled: true,
                 fillColor: Colors.white.withAlpha(5),
@@ -74,11 +80,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.fingerprint, color: Colors.blueAccent),
+                      const Icon(Icons.fingerprint, color: Colors.greenAccent),
                       const SizedBox(width: 12),
                       const Text('Global ID', style: TextStyle(color: Colors.white38)),
                       const Spacer(),
-                      Text(widget.user.id, style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                      Text(widget.user.id, style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2, color: Colors.greenAccent)),
                     ],
                   ),
                   const Divider(height: 32, color: Colors.white10),
