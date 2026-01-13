@@ -57,6 +57,7 @@ class ChatMessage {
 class ChatUser {
   String name;
   final String id;
+  String? profileImageUrl;
   final List<ChatMessage> messages;
   bool isTyping;
   bool isOnline;
@@ -65,6 +66,7 @@ class ChatUser {
   ChatUser({
     required this.name,
     required this.id,
+    this.profileImageUrl,
     List<ChatMessage>? messages,
     this.isTyping = false,
     this.isOnline = false,
@@ -75,6 +77,7 @@ class ChatUser {
   Map<String, dynamic> toJson() => {
     'name': name,
     'id': id,
+    'profileImageUrl': profileImageUrl,
     'messages': messages.map((m) => m.toJson()).toList(),
     'unreadCount': unreadCount,
   };
@@ -83,6 +86,7 @@ class ChatUser {
     return ChatUser(
       name: json['name'] ?? 'Unknown',
       id: json['id'] ?? '',
+      profileImageUrl: json['profileImageUrl'],
       messages: (json['messages'] as List?)?.map((m) => ChatMessage.fromJson(m)).toList() ?? [],
       unreadCount: json['unreadCount'] is int ? json['unreadCount'] : 0,
     );

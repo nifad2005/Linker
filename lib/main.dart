@@ -180,7 +180,9 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _client!.updates!.listen((List<MqttReceivedMessage<MqttMessage>> c) {
         final MqttPublishMessage recMess = c[0].payload as MqttPublishMessage;
         final String pt = MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
-        _handleIncomingMessage(pt);
+        if (pt.isNotEmpty) {
+          _handleIncomingMessage(pt);
+        }
       });
     } catch (e) {
       debugPrint('MQTT connection failed: $e');
@@ -193,6 +195,8 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'type': 'STATUS',
       'senderId': _currentUser.id,
       'online': online,
+      'senderName': _currentUser.name,
+      'profileImageUrl': _currentUser.profileImageUrl,
     });
     final builder = MqttClientPayloadBuilder();
     builder.addString(payload);
@@ -200,6 +204,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void _handleIncomingMessage(String payload) {
+    if (payload.trim().isEmpty) return;
     try {
       final dynamic decoded = jsonDecode(payload);
       if (decoded is! Map) return;
@@ -209,6 +214,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
       final String type = decoded['type'] ?? 'MESSAGE';
       final String senderName = decoded['senderName'] ?? 'Peer-$senderId';
+      final String? profileImageUrl = decoded['profileImageUrl'];
       final String text = decoded['text'] ?? '';
 
       if (mounted) {
@@ -217,7 +223,12 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           setState(() {
             int index = _users.indexWhere((u) => u.id == senderId);
             if (index == -1) {
-              _users.insert(0, ChatUser(name: senderName, id: senderId, messages: []));
+              _users.insert(0, ChatUser(
+                name: senderName, 
+                id: senderId, 
+                profileImageUrl: profileImageUrl,
+                messages: []
+              ));
               index = 0;
               _client?.subscribe('linker/status/$senderId', MqttQos.atLeastOnce);
               if (type == 'CONNECT') {
@@ -225,10 +236,15 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               }
             } else {
               _users[index].name = senderName;
+              if (profileImageUrl != null) {
+                _users[index].profileImageUrl = profileImageUrl;
+              }
             }
 
             if (type == 'STATUS') {
               _users[index].isOnline = decoded['online'] ?? false;
+              _users[index].name = decoded['senderName'] ?? _users[index].name;
+              _users[index].profileImageUrl = decoded['profileImageUrl'] ?? _users[index].profileImageUrl;
             } else if (type == 'TYPING') {
               _users[index].isTyping = decoded['isTyping'] ?? false;
             } else if (type == 'SEEN') {
@@ -263,7 +279,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         });
       }
     } catch (e) {
-      debugPrint('Error handling message: $e');
+      debugPrint('Error handling message: $e Payload: "$payload"');
     }
   }
 
@@ -271,13 +287,13 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     try {
       final prefs = await SharedPreferences.getInstance();
       final userJson = prefs.getString('user_profile');
-      if (userJson != null) {
+      if (userJson != null && userJson.isNotEmpty) {
         _currentUser = UserProfile.fromJson(jsonDecode(userJson));
       } else {
         await prefs.setString('user_profile', jsonEncode(_currentUser.toJson()));
       }
       final connectionsJson = prefs.getString('connections');
-      if (connectionsJson != null) {
+      if (connectionsJson != null && connectionsJson.isNotEmpty) {
         final List decoded = jsonDecode(connectionsJson);
         final List<ChatUser> loadedUsers = decoded.map((u) => ChatUser.fromJson(u)).toList();
         if (mounted) {
@@ -358,6 +374,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'type': 'CONNECT',
       'senderId': _currentUser.id,
       'senderName': _currentUser.name,
+      'profileImageUrl': _currentUser.profileImageUrl,
       'text': isResponse ? 'Accepted connection' : 'Requested connection',
     });
 
@@ -376,6 +393,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'type': 'MESSAGE',
       'senderId': _currentUser.id,
       'senderName': _currentUser.name,
+      'profileImageUrl': _currentUser.profileImageUrl,
       'text': text,
     });
 
@@ -439,7 +457,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           : ProfileScreen(
               user: _currentUser, 
               onUpdateName: (name) { setState(() => _currentUser.name = name); _saveData(); _broadcastStatus(true); },
-              onUpdateImage: (path) { setState(() => _currentUser.profileImageUrl = path); _saveData(); },
+              onUpdateImage: (path) { setState(() => _currentUser.profileImageUrl = path); _saveData(); _broadcastStatus(true); },
             ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
