@@ -26,14 +26,14 @@ class LinkerApp extends StatelessWidget {
       title: 'Linker',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF121212),
+        scaffoldBackgroundColor: const Color(0xFF0F0F0F), // Deep black
         colorScheme: const ColorScheme.dark(
           primary: Colors.white,
           secondary: Colors.greenAccent,
-          surface: Color(0xFF1E1E1E),
+          surface: Color(0xFF1A1A1A),
         ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF121212),
+          backgroundColor: Color(0xFF0F0F0F),
           elevation: 0,
         ),
       ),
@@ -216,6 +216,9 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final String senderName = decoded['senderName'] ?? 'Peer-$senderId';
       final String text = decoded['text'] ?? '';
       final String? messageId = decoded['messageId'];
+      final DateTime timestamp = decoded['timestamp'] != null 
+          ? DateTime.parse(decoded['timestamp']).toLocal() 
+          : DateTime.now();
 
       if (mounted) {
         Future.microtask(() {
@@ -270,7 +273,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 id: const Uuid().v4(),
                 text: 'Connection established with $senderName',
                 isMe: false,
-                timestamp: DateTime.now(),
+                timestamp: timestamp,
                 isSystem: true,
               ));
               _broadcastStatus(true);
@@ -280,7 +283,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 id: messageId ?? const Uuid().v4(),
                 text: text,
                 isMe: false,
-                timestamp: DateTime.now(),
+                timestamp: timestamp,
               ));
               _users[index].unreadCount++;
 
@@ -399,6 +402,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'senderId': _currentUser.id,
       'senderName': _currentUser.name,
       'text': isResponse ? 'Accepted connection' : 'Requested connection',
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
     });
 
     final builder = MqttClientPayloadBuilder();
@@ -413,12 +417,14 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     final String messageId = const Uuid().v4();
+    final DateTime now = DateTime.now();
     final payload = jsonEncode({
       'type': 'MESSAGE',
       'messageId': messageId,
       'senderId': _currentUser.id,
       'senderName': _currentUser.name,
       'text': text,
+      'timestamp': now.toUtc().toIso8601String(),
     });
 
     final builder = MqttClientPayloadBuilder();
@@ -432,7 +438,7 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           id: messageId,
           text: text, 
           isMe: true, 
-          timestamp: DateTime.now()
+          timestamp: now
         ));
       }
     });
@@ -545,12 +551,14 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Widget _buildDesktopLayout() {
     return Scaffold(
+      backgroundColor: const Color(0xFF0A0A0A), // Sidebar background
       body: Row(
         children: [
           // Left sidebar (Nav + Chat List)
           Container(
             width: 350,
             decoration: const BoxDecoration(
+              color: Color(0xFF0A0A0A),
               border: Border(right: BorderSide(color: Colors.white10, width: 0.5)),
             ),
             child: Column(
@@ -578,27 +586,30 @@ class MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ),
           // Main chat area
           Expanded(
-            child: _selectedUser != null 
-                ? MessagePage(
-                    key: ValueKey(_selectedUser!.id),
-                    user: _selectedUser!,
-                    onMessageSent: (text) => sendMessage(_selectedUser!.id, text),
-                    onSendTyping: (isTyping) => sendTypingStatus(_selectedUser!.id, isTyping),
-                    onSendSeen: () => sendSeenStatus(_selectedUser!.id),
-                    onDeleteMessage: (msgId, {bool forEveryone = false}) => deleteMessage(_selectedUser!.id, msgId, forEveryone: forEveryone),
-                    onReactToMessage: (msgId, emoji) => reactToMessage(_selectedUser!.id, msgId, emoji),
-                    myId: _currentUser.id,
-                  )
-                : const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.chat_bubble_outline, size: 64, color: Colors.white10),
-                        SizedBox(height: 16),
-                        Text('Select a conversation to start messaging', style: TextStyle(color: Colors.white38)),
-                      ],
+            child: Container(
+              color: const Color(0xFF121212), // Chat area background
+              child: _selectedUser != null 
+                  ? MessagePage(
+                      key: ValueKey(_selectedUser!.id),
+                      user: _selectedUser!,
+                      onMessageSent: (text) => sendMessage(_selectedUser!.id, text),
+                      onSendTyping: (isTyping) => sendTypingStatus(_selectedUser!.id, isTyping),
+                      onSendSeen: () => sendSeenStatus(_selectedUser!.id),
+                      onDeleteMessage: (msgId, {bool forEveryone = false}) => deleteMessage(_selectedUser!.id, msgId, forEveryone: forEveryone),
+                      onReactToMessage: (msgId, emoji) => reactToMessage(_selectedUser!.id, msgId, emoji),
+                      myId: _currentUser.id,
+                    )
+                  : const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.chat_bubble_outline, size: 64, color: Colors.white10),
+                          SizedBox(height: 16),
+                          Text('Select a conversation to start messaging', style: TextStyle(color: Colors.white38)),
+                        ],
+                      ),
                     ),
-                  ),
+            ),
           ),
         ],
       ),

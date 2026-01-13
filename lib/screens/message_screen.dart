@@ -157,10 +157,11 @@ class _MessagePageState extends State<MessagePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent, // Background handled by parent Container
       appBar: AppBar(
         titleSpacing: 0,
         elevation: 0,
-        backgroundColor: const Color(0xFF121212),
+        backgroundColor: Colors.transparent,
         title: Row(
           children: [
             const SizedBox(width: 4),
@@ -263,7 +264,7 @@ class _AnimatedMessageBubbleState extends State<AnimatedMessageBubble> with Sing
     );
 
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(0.0, 0.8), // Now comes from the bottom
+      begin: const Offset(0.0, 0.8),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _controller,
@@ -287,6 +288,9 @@ class _AnimatedMessageBubbleState extends State<AnimatedMessageBubble> with Sing
   @override
   Widget build(BuildContext context) {
     final m = widget.message;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final sideMargin = (screenWidth * 0.15).clamp(16.0, 300.0);
+
     return FadeTransition(
       opacity: _fadeAnimation,
       child: SlideTransition(
@@ -299,15 +303,21 @@ class _AnimatedMessageBubbleState extends State<AnimatedMessageBubble> with Sing
             child: GestureDetector(
               onLongPress: widget.onLongPress,
               child: Container(
-                margin: const EdgeInsets.only(bottom: 8),
+                margin: EdgeInsets.only(
+                  bottom: 6,
+                  left: m.isMe ? sideMargin : 16,
+                  right: m.isMe ? 16 : sideMargin,
+                ),
                 child: Column(
                   crossAxisAlignment: m.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                   children: [
                     Container(
-                      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      constraints: BoxConstraints(maxWidth: screenWidth * 0.72),
+                      padding: const EdgeInsets.fromLTRB(10, 7, 10, 4),
                       decoration: BoxDecoration(
-                        color: m.isDeleted ? Colors.white.withAlpha(13) : (m.isMe ? Colors.greenAccent.withAlpha(50) : const Color(0xFF1E1E1E)),
+                        color: m.isDeleted 
+                            ? Colors.white.withAlpha(13) 
+                            : (m.isMe ? Colors.greenAccent.withAlpha(40) : const Color(0xFF242424)),
                         borderRadius: BorderRadius.only(
                           topLeft: const Radius.circular(16),
                           topRight: const Radius.circular(16),
@@ -316,41 +326,39 @@ class _AnimatedMessageBubbleState extends State<AnimatedMessageBubble> with Sing
                         ),
                         border: m.isDeleted ? Border.all(color: Colors.white10) : null,
                       ),
-                      child: IntrinsicWidth(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              m.text,
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: m.isDeleted ? Colors.white38 : Colors.white,
-                                fontStyle: m.isDeleted ? FontStyle.italic : FontStyle.normal,
-                              ),
+                      child: Wrap(
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.end,
+                        children: [
+                          Text(
+                            m.text,
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: m.isDeleted ? Colors.white38 : Colors.white.withAlpha(240),
+                              fontStyle: m.isDeleted ? FontStyle.italic : FontStyle.normal,
                             ),
-                            const SizedBox(height: 2),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8, top: 2),
+                            child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Spacer(),
                                 Text(
-                                  DateFormat('HH:mm').format(m.timestamp),
-                                  style: const TextStyle(fontSize: 9, color: Colors.white24),
+                                  DateFormat.jm().format(m.timestamp),
+                                  style: const TextStyle(fontSize: 8.5, color: Colors.white24),
                                 ),
                                 if (m.isMe) ...[
-                                  const SizedBox(width: 4),
+                                  const SizedBox(width: 3),
                                   Icon(
                                     Icons.done_all,
-                                    size: 12,
+                                    size: 11,
                                     color: m.isSeen ? Colors.greenAccent : Colors.white12,
                                   ),
                                 ]
                               ],
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                     if (m.reactions.isNotEmpty)
